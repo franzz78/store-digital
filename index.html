@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Store Logistik & Perlengkapan</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#06b6d4">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+</head>
+<body>
+
+  <!-- LOADING SCREEN -->
+  <div id="loading-screen" class="loading-screen">
+    <div class="loading-content">
+      <h2>Welcome To Store</h2>
+      <h1>Logistik & Perlengkapan</h1>
+      <div class="progress-bar-container">
+        <div id="progress-bar" class="progress-bar"></div>
+      </div>
+      <p id="progress-text">Loading 0%</p>
+    </div>
+  </div>
+
+  <!-- NAVBAR -->
+  <header class="navbar-header">
+    <div class="nav-container">
+      <div class="brand-logo" onclick="switchTab('home')">
+        <span class="brand-cyan">LOGISTIK</span> & PERLENGKAPAN
+      </div>
+      
+      <nav class="desktop-nav">
+        <a href="#" class="nav-link active" onclick="switchTab('home')"><i class="fa-solid fa-house"></i> Home</a>
+        <a href="#" class="nav-link" onclick="switchTab('products')"><i class="fa-solid fa-box"></i> Products</a>
+        <a href="#" class="nav-link" onclick="switchTab('community')"><i class="fa-solid fa-users"></i> Community Only</a>
+        <a href="#" class="nav-link" onclick="switchTab('orders')"><i class="fa-solid fa-receipt"></i> My Orders</a>
+        <a href="#" class="nav-link" onclick="switchTab('tickets')"><i class="fa-solid fa-headset"></i> Tickets</a>
+        <a href="#" class="nav-link" onclick="switchTab('payment-info')"><i class="fa-solid fa-wallet"></i> Payment</a>
+        <a href="#" class="nav-link" onclick="switchTab('profile')"><i class="fa-solid fa-user"></i> Profile</a>
+        <a href="#" id="admin-nav-item" class="nav-link hidden" onclick="switchTab('admin')"><i class="fa-solid fa-user-shield"></i> Administrator</a>
+      </nav>
+
+      <div class="user-badge" onclick="switchTab('profile')">
+        <i class="fa-solid fa-circle-user"></i>
+        <span id="nav-username">Guest</span>
+      </div>
+
+      <div class="hamburger" id="hamburger-btn" onclick="toggleMobileMenu()">
+        <span></span>
+        <span></span>
+        <span></span>
+      </div>
+    </div>
+
+    <!-- MOBILE MENU -->
+    <div class="mobile-menu" id="mobile-menu">
+      <a href="#" onclick="switchTab('home')"><i class="fa-solid fa-house"></i> Home</a>
+      <a href="#" onclick="switchTab('products')"><i class="fa-solid fa-box"></i> Products</a>
+      <a href="#" onclick="switchTab('community')"><i class="fa-solid fa-users"></i> Community Only</a>
+      <a href="#" onclick="switchTab('orders')"><i class="fa-solid fa-receipt"></i> My Orders</a>
+      <a href="#" onclick="switchTab('tickets')"><i class="fa-solid fa-headset"></i> Tickets</a>
+      <a href="#" onclick="switchTab('payment-info')"><i class="fa-solid fa-wallet"></i> Payment</a>
+      <a href="#" onclick="switchTab('profile')"><i class="fa-solid fa-user"></i> Profile</a>
+      <a href="#" id="admin-nav-item-mobile" class="hidden" onclick="switchTab('admin')"><i class="fa-solid fa-user-shield"></i> Administrator</a>
+    </div>
+  </header>
+
+  <!-- STORE CLOSED BANNER NOTIFICATION -->
+  <div id="store-closed-bar" class="store-closed-bar hidden">
+    <i class="fa-solid fa-triangle-exclamation"></i> STORE CURRENTLY CLOSED - TRANSAKSI TIDAK DAPAT DILAKUKAN
+  </div>
+
+  <main class="main-content">
+
+    <!-- HOME SECTION -->
+    <section id="sec-home" class="view-section active">
+      <div class="hero-card">
+        <h1>Store Logistik & Perlengkapan</h1>
+        <p>"Murah dan terjamin aman, tersedia beberapa payment"</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" onclick="switchTab('products')"><i class="fa-solid fa-shopping-cart"></i> BELANJA SEKARANG</button>
+          <button class="btn btn-secondary" onclick="switchTab('community')"><i class="fa-solid fa-crown"></i> COMMUNITY ONLY</button>
+        </div>
+      </div>
+
+      <!-- BANNER SLIDER -->
+      <div id="banner-container" class="banner-slider-wrapper hidden">
+        <div class="slider-track" id="slider-track"></div>
+        <button class="slider-btn prev" onclick="moveSlide(-1)"><i class="fa-solid fa-chevron-left"></i></button>
+        <button class="slider-btn next" onclick="moveSlide(1)"><i class="fa-solid fa-chevron-right"></i></button>
+        <div class="slider-dots" id="slider-dots"></div>
+      </div>
+
+      <div class="section-title">
+        <h2><i class="fa-solid fa-fire"></i> Produk Unggulan</h2>
+      </div>
+      <div id="featured-products-grid" class="products-grid"></div>
+    </section>
+
+    <!-- PRODUCTS SECTION -->
+    <section id="sec-products" class="view-section">
+      <div class="filter-card">
+        <input type="text" id="search-input" placeholder="Search product..." oninput="filterProducts()">
+        <select id="category-filter" onchange="filterProducts()">
+          <option value="ALL">Semua Kategori</option>
+        </select>
+      </div>
+      <div id="products-grid" class="products-grid"></div>
+    </section>
+
+    <!-- COMMUNITY ONLY SECTION -->
+    <section id="sec-community" class="view-section">
+      <div class="hero-card community-hero">
+        <h1><i class="fa-solid fa-crown"></i> Community Only Store</h1>
+        <p>Eksklusif hanya menggunakan POINT / COIN. Transaksi lebih cepat dan aman.</p>
+      </div>
+      <div id="community-products-grid" class="products-grid"></div>
+    </section>
+
+    <!-- MY ORDERS SECTION -->
+    <section id="sec-orders" class="view-section">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-receipt"></i> Riwayat Pesanan Saya</h2>
+      </div>
+      <div id="orders-list-container" class="orders-list"></div>
+    </section>
+
+    <!-- TICKETS SECTION -->
+    <section id="sec-tickets" class="view-section">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-headset"></i> Layanan Bantuan / Ticket</h2>
+      </div>
+      <div id="tickets-list-container" class="tickets-list"></div>
+    </section>
+
+    <!-- PAYMENT INFO SECTION -->
+    <section id="sec-payment-info" class="view-section">
+      <div class="section-title">
+        <h2><i class="fa-solid fa-wallet"></i> Metode Pembayaran Resmi</h2>
+      </div>
+      <div id="public-payments-grid" class="payments-grid"></div>
+    </section>
+
+    <!-- PROFILE SECTION -->
+    <section id="sec-profile" class="view-section">
+      <div class="profile-card">
+        <div class="avatar-large"><i class="fa-solid fa-user-astronaut"></i></div>
+        <h2 id="prof-display-name">Guest</h2>
+        <span class="role-badge" id="prof-role">GUEST</span>
+        
+        <div class="point-box">
+          <span>Saldo Poin Anda:</span>
+          <strong id="prof-points">0 POINT</strong>
+        </div>
+
+        <div class="form-group margin-top">
+          <label>Ubah Nama Tampilan:</label>
+          <input type="text" id="input-new-name" placeholder="Masukkan nama baru">
+          <button class="btn btn-primary margin-top-sm" onclick="updateProfileName()">Simpan Nama</button>
+        </div>
+
+        <div class="admin-login-box">
+          <hr>
+          <h3>Akses Staf / Administrator</h3>
+          <input type="password" id="input-admin-pass" placeholder="Password Admin / Owner">
+          <button class="btn btn-cyan margin-top-sm" onclick="loginAdmin()">Login Administrator</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- PRODUCT DETAIL MODAL/VIEW -->
+    <section id="sec-product-detail" class="view-section">
+      <button class="btn btn-secondary margin-bottom" onclick="switchTab('products')"><i class="fa-solid fa-arrow-left"></i> Kembali</button>
+      <div class="product-detail-card" id="product-detail-content"></div>
+    </section>
+
+    <!-- TICKET CHAT MODAL/VIEW -->
+    <section id="sec-ticket-chat" class="view-section">
+      <button class="btn btn-secondary margin-bottom" onclick="switchTab('tickets')"><i class="fa-solid fa-arrow-left"></i> Kembali ke Tiket</button>
+      <div class="chat-container">
+        <div class="chat-header" id="chat-header-info"></div>
+        <div class="chat-messages" id="chat-messages-box"></div>
+        <div class="chat-input-row">
+          <input type="text" id="chat-input" placeholder="Tulis pesan...">
+          <button class="btn btn-primary" onclick="sendChatMessage()"><i class="fa-solid fa-paper-plane"></i></button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ADMINISTRATOR PANEL SECTION -->
+    <section id="sec-admin" class="view-section">
+      <div class="admin-layout">
+        <aside class="admin-sidebar">
+          <h3>Admin Panel</h3>
+          <button onclick="switchAdminSubTab('dash')" class="admin-tab-btn active"><i class="fa-solid fa-chart-line"></i> Dashboard</button>
+          <button onclick="switchAdminSubTab('prod')" class="admin-tab-btn"><i class="fa-solid fa-box"></i> Produk</button>
+          <button onclick="switchAdminSubTab('ord')" class="admin-tab-btn"><i class="fa-solid fa-shopping-bag"></i> Pesanan</button>
+          <button onclick="switchAdminSubTab('tck')" class="admin-tab-btn"><i class="fa-solid fa-comments"></i> Tiket Chat</button>
+          <button onclick="switchAdminSubTab('ban')" class="admin-tab-btn"><i class="fa-solid fa-images"></i> Banner</button>
+          <button onclick="switchAdminSubTab('pay')" class="admin-tab-btn"><i class="fa-solid fa-credit-card"></i> Payment</button>
+          <button onclick="switchAdminSubTab('sel')" class="admin-tab-btn"><i class="fa-solid fa-store"></i> Seller</button>
+          <button onclick="switchAdminSubTab('usr')" class="admin-tab-btn"><i class="fa-solid fa-users"></i> User & Poin</button>
+          
+          <div id="owner-only-sidebar-menu" class="hidden">
+            <hr>
+            <span class="sidebar-label">Owner Controls</span>
+            <button onclick="switchAdminSubTab('adm')" class="admin-tab-btn"><i class="fa-solid fa-user-gear"></i> Kelola Admin</button>
+            <button onclick="toggleStoreStatus()" id="btn-toggle-store" class="admin-tab-btn btn-danger-tab"><i class="fa-solid fa-lock"></i> Store Lock</button>
+          </div>
+        </aside>
+
+        <div class="admin-content">
+          <!-- ADMIN DASHBOARD -->
+          <div id="admin-sub-dash" class="admin-sub-page active">
+            <h2>Dashboard Statistik</h2>
+            <div class="stats-grid" id="stats-grid-container"></div>
+          </div>
+
+          <!-- ADMIN PRODUCTS -->
+          <div id="admin-sub-prod" class="admin-sub-page">
+            <div class="flex-between">
+              <h2>Kelola Produk</h2>
+              <button class="btn btn-primary" onclick="openAddProductModal()">+ Tambah Produk</button>
+            </div>
+            <div id="admin-products-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN ORDERS -->
+          <div id="admin-sub-ord" class="admin-sub-page">
+            <h2>Daftar Pesanan Masuk</h2>
+            <div id="admin-orders-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN TICKETS -->
+          <div id="admin-sub-tck" class="admin-sub-page">
+            <h2>Daftar Tiket Dukungan</h2>
+            <div id="admin-tickets-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN BANNERS -->
+          <div id="admin-sub-ban" class="admin-sub-page">
+            <div class="flex-between">
+              <h2>Kelola Banner (Maks 15)</h2>
+              <button class="btn btn-primary" onclick="openAddBannerModal()">+ Tambah Banner</button>
+            </div>
+            <div id="admin-banners-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN PAYMENTS -->
+          <div id="admin-sub-pay" class="admin-sub-page">
+            <div class="flex-between">
+              <h2>Metode Pembayaran</h2>
+              <button class="btn btn-primary" onclick="openAddPaymentModal()">+ Tambah Payment</button>
+            </div>
+            <div id="admin-payments-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN SELLERS -->
+          <div id="admin-sub-sel" class="admin-sub-page">
+            <h2>Daftar Seller</h2>
+            <div id="admin-sellers-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN USERS -->
+          <div id="admin-sub-usr" class="admin-sub-page">
+            <h2>Daftar Pengguna & Poin</h2>
+            <div id="admin-users-table" class="table-responsive margin-top"></div>
+          </div>
+
+          <!-- ADMIN MANAGEMENT (OWNER ONLY) -->
+          <div id="admin-sub-adm" class="admin-sub-page">
+            <div class="flex-between">
+              <h2>Manajemen Staf Admin</h2>
+              <button class="btn btn-primary" onclick="openAddAdminModal()">+ Tambah Admin Baru</button>
+            </div>
+            <div id="admin-list-table" class="table-responsive margin-top"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="main-footer">
+    <p>&copy; 2026 Store Logistik & Perlengkapan. Murah dan terjamin aman.</p>
+  </footer>
+
+  <!-- MODULE FIREBASE CDN -->
+  <script type="module" src="script.js"></script>
+</body>
+</html>
