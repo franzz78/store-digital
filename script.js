@@ -1,4 +1,4 @@
-// Firebase Config
+// Konfigurasi Firebase
 const firebaseConfig = {
   apiKey: "AIzaSyD9BmV4XKXuMWa4PZHpb7Bbt-rHs61m3lE",
   databaseURL: "https://absensi-polri-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -8,617 +8,721 @@ const firebaseConfig = {
   appId: "1:19006760644:web:b980f54aea123e92ed4b91"
 };
 
-// Initialize Firebase
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
-}
-
+// Inisialisasi Firebase
+firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
-const auth = firebase.auth();
 
-// Global App State
-let currentUser = null;
-let userProfile = null;
-let productsCache = {};
-let bannersCache = [];
-let activeCategoryFilter = "Semua";
-let isAuthSignUp = false;
-let currentActiveTicketId = null;
-let currentCheckoutProduct = null;
+// Application State
+let currentUser = {
+  id: localStorage.getItem("store_user_id") || "usr_" + Math.random().toString(36).substr(2, 9),
+  name: localStorage.getItem("store_user_name") || "Guest",
+  role: "GUEST", // GUEST, ADMIN, OWNER
+  points: 0
+};
 
-// Initialize Web App
-document.addEventListener('DOMContentLoaded', () => {
-  runLoadingProgress();
-  setupAuthObserver();
-  setupRealtimeListeners();
+let storeClosed = false;
+let currentActiveTicket = null;
+let currentCategory = "Semua";
+
+// Save User ID Persistent
+localStorage.setItem("store_user_id", currentUser.id);
+
+// Init Application
+document.addEventListener("DOMContentLoaded", () => {
+  runLoadingScreen();
+  setupNavigation();
+  initUserData();
+  listenStoreStatus();
+  listenBanners();
+  listenProducts();
+  listenOrders();
+  setupAdminTabs();
 });
 
-// Loading Progress Logic
-function runLoadingProgress() {
+// 1. Loading Screen Animasi
+function runLoadingScreen() {
   let progress = 0;
-  const fill = document.getElementById('progress-fill');
-  const counter = document.getElementById('loading-counter');
-  
-  const timer = setInterval(() => {
-    progress += Math.floor(Math.random() * 15) + 5;
+  const progressBar = document.getElementById("progress");
+  const loadingText = document.getElementById("loading-text");
+  const screen = document.getElementById("loading-screen");
+
+  const interval = setInterval(() => {
+    progress += 5;
+    progressBar.style.width = progress + "%";
+    loadingText.innerText = `Loading ${progress}%`;
+
     if (progress >= 100) {
-      progress = 100;
-      clearInterval(timer);
+      clearInterval(interval);
       setTimeout(() => {
-        const screen = document.getElementById('loading-screen');
-        screen.style.opacity = '0';
-        screen.style.transition = 'opacity 0.4s ease';
-        setTimeout(() => screen.classList.add('hidden'), 400);
+        screen.style.opacity = "0";
+        screen.style.visibility = "hidden";
       }, 300);
     }
-    fill.style.width = progress + '%';
-    counter.innerText = `Loading ${progress}%`;
-  }, 80);
+  }, 30);
 }
 
-// Authentication State
-function setupAuthObserver() {
-  auth.onAuthStateChanged(user => {
-    currentUser = user;
-    const authBtn = document.getElementById('auth-nav-btn');
-    const adminLink = document.getElementById('admin-drawer-link');
-    
-    if (user) {
-      authBtn.innerText = "Profil";
-      authBtn.onclick = () => switchView('profile-view');
-      document.getElementById('prof-uid').innerText = user.uid;
-      
-      db.ref(`users/${user.uid}`).on('value', snapshot => {
-        userProfile = snapshot.val() || {};
-        document.getElementById('user-points-display').innerText = userProfile.pointBalance || 0;
-        document.getElementById('prof-name').innerText = userProfile.displayName || "User";
-        document.getElementById('prof-role').innerText = userProfile.role || "USER";
-        document.getElementById('prof-point').innerText = userProfile.pointBalance || 0;
-        
-        if (userProfile.role === 'ADMIN' || userProfile.role === 'OWNER') {
-          adminLink.classList.remove('hidden');
-          if (userProfile.role === 'OWNER') {
-            document.getElementById('owner-tab-link').classList.remove('hidden');
+// 2. Navigation & User System
+function setupNavigation() {
+  const toggle = document.getElementById("mobile-menu");
+  const menu = document.getElementById("nav-menu");
+
+  toggle.addEventListener("click", () => {
+    menu.classList.toggle("active");
+  });
+
+  document.getElementById("user-btn").addEventListener("click", () => {
+    if (currentUser.role === "GUEST") {
+      Swal.fire({
+        title: 'User Profile & Admin Login',
+        html: `
+          <input type="text" id="swal-name" class="swal2-input" placeholder="Nama Anda" value="${currentUser.name}">
+          <p style="margin-top:10px; font-size:12px; color:#666;">Akses Administrator / Owner:</p>
+          <input type="password" id="swal-pass" class="swal2-input" placeholder="Password Admin/Owner (Opsional)">
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Simpan / Login',
+        preConfirm: () => {
+          return {
+            name: document.getElementById('swal-name').value,
+            pass: document.getElementById('swal-pass').value
           }
+        }
+      }).then((res) => {
+        if (res.isConfirmed) {
+          const { name, pass } = res.value;
+          if (name) {
+            currentUser.name = name;
+            localStorage.setItem("store_user_name", name);
+            db.ref(`users/${currentUser.id}/name`).set(name);
+          }
+
+          // Cek Password Administrator/Owner
+          if (pass === "OWNERSTORE1999/2026##") {
+            currentUser.role = "OWNER";
+            Swal.fire('Login Success', 'Login sebagai OWNER', 'success');
+          } else if (pass === "STOREASSET2026##") {
+            currentUser.role = "ADMIN";
+            Swal.fire('Login Success', 'Login sebagai ADMIN', 'success');
+          } else if (pass !== "") {
+            // Check in Database admins
+            db.ref("admins").once("value", snap => {
+              let found = false;
+              snap.forEach(child => {
+                if (child.val().password === pass) {
+                  found = true;
+                  currentUser.role = child.val().role || "ADMIN";
+                }
+              });
+              if (found) {
+                Swal.fire('Login Success', 'Login Admin Berhasil', 'success');
+                updateUserUI();
+              } else {
+                Swal.fire('Error', 'Password Admin Salah', 'error');
+              }
+            });
+          }
+          updateUserUI();
         }
       });
     } else {
-      authBtn.innerText = "Login";
-      authBtn.onclick = () => openAuthModal();
-      document.getElementById('user-points-display').innerText = "0";
-      adminLink.classList.add('hidden');
+      Swal.fire({
+        title: `Logged in: ${currentUser.name}`,
+        text: `Role: ${currentUser.role}`,
+        icon: 'info',
+        showCancelButton: true,
+        confirmButtonText: 'Logout Role',
+        cancelButtonText: 'Tutup'
+      }).then(r => {
+        if(r.isConfirmed) {
+          currentUser.role = "GUEST";
+          updateUserUI();
+          Swal.fire('Logout', 'Kembali ke mode Guest', 'info');
+        }
+      });
     }
+  });
+
+  // Topup Info
+  document.getElementById("btn-topup-info").addEventListener("click", () => {
+    Swal.fire("Info Point/Coin", "Point digunakan khusus untuk pembelian produk Community Only. Hubungi Admin via Ticket untuk pengisian Point.", "info");
   });
 }
 
-// Realtime Listeners
-function setupRealtimeListeners() {
-  db.ref('products').on('value', snapshot => {
-    productsCache = snapshot.val() || {};
+function initUserData() {
+  db.ref(`users/${currentUser.id}`).on("value", snap => {
+    const data = snap.val();
+    if (data) {
+      currentUser.points = data.points || 0;
+      document.getElementById("user-points").innerText = currentUser.points.toLocaleString();
+    } else {
+      db.ref(`users/${currentUser.id}`).set({
+        name: currentUser.name,
+        points: 0
+      });
+    }
+  });
+  updateUserUI();
+}
+
+function updateUserUI() {
+  document.getElementById("user-name").innerText = `${currentUser.name} (${currentUser.role})`;
+  const adminNav = document.getElementById("admin-nav-item");
+  const adminSec = document.getElementById("admin");
+
+  if (currentUser.role === "ADMIN" || currentUser.role === "OWNER") {
+    adminNav.classList.remove("hidden");
+    document.getElementById("admin-role-badge").innerText = currentUser.role;
+
+    if (currentUser.role === "OWNER") {
+      document.querySelectorAll(".owner-only").forEach(el => el.classList.remove("hidden"));
+    } else {
+      document.querySelectorAll(".owner-only").forEach(el => el.classList.add("hidden"));
+    }
+  } else {
+    adminNav.classList.add("hidden");
+    adminSec.classList.add("hidden");
+  }
+}
+
+// 3. Store Status Listener
+function listenStoreStatus() {
+  db.ref("store_status").on("value", snap => {
+    storeClosed = snap.val() === "CLOSED";
+    const statusBar = document.getElementById("store-status-bar");
+    const currentStatusText = document.getElementById("current-store-status");
+
+    if (storeClosed) {
+      statusBar.classList.remove("hidden");
+      if(currentStatusText) currentStatusText.innerText = "CLOSED";
+    } else {
+      statusBar.classList.add("hidden");
+      if(currentStatusText) currentStatusText.innerText = "OPEN";
+    }
+    renderProducts();
+  });
+
+  document.getElementById("btn-toggle-store").addEventListener("click", () => {
+    if (currentUser.role !== "OWNER") return;
+    const newStatus = storeClosed ? "OPEN" : "CLOSED";
+    db.ref("store_status").set(newStatus);
+  });
+}
+
+// 4. Banner Slider System
+function listenBanners() {
+  db.ref("banners").on("value", snap => {
+    const container = document.getElementById("slider-container");
+    const adminTable = document.getElementById("admin-banner-table");
+    container.innerHTML = "";
+    adminTable.innerHTML = "";
+
+    let banners = [];
+    snap.forEach(child => {
+      banners.push({ id: child.key, ...child.val() });
+    });
+
+    if (banners.length === 0) {
+      container.innerHTML = `<div class="slide active"><img src="https://via.placeholder.com/800x200?text=Store+Logistik+%26+Perlengkapan" alt="Default"></div>`;
+    } else {
+      banners.filter(b => b.active).forEach((b, idx) => {
+        container.innerHTML += `
+          <div class="slide ${idx === 0 ? 'active' : ''}">
+            <img src="${b.url}" alt="${b.title}">
+          </div>
+        `;
+      });
+      startBannerRotation();
+    }
+
+    // Admin List
+    banners.forEach(b => {
+      adminTable.innerHTML += `
+        <tr>
+          <td><img src="${b.url}" width="50" height="30" style="object-fit:cover;"></td>
+          <td>${b.title}</td>
+          <td>${b.active ? 'Aktif' : 'Nonaktif'}</td>
+          <td>
+            <button onclick="toggleBanner('${b.id}', ${!b.active})" class="btn-sm">${b.active ? 'Disable' : 'Enable'}</button>
+            <button onclick="deleteBanner('${b.id}')" class="btn-sm" style="background:#ef4444; color:white;">Hapus</button>
+          </td>
+        </tr>
+      `;
+    });
+  });
+
+  document.getElementById("btn-add-banner").addEventListener("click", () => {
+    db.ref("banners").once("value", snap => {
+      if (snap.numChildren() >= 15) {
+        return Swal.fire("Limit Reached", "Maksimal 15 Banner!", "warning");
+      }
+      Swal.fire({
+        title: 'Tambah Banner',
+        html: `
+          <input type="text" id="b-title" class="swal2-input" placeholder="Judul Banner">
+          <input type="text" id="b-url" class="swal2-input" placeholder="URL Gambar">
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Simpan'
+      }).then(r => {
+        if (r.isConfirmed) {
+          const title = document.getElementById('b-title').value;
+          const url = document.getElementById('b-url').value;
+          if (title && url) {
+            db.ref("banners").push({ title, url, active: true });
+          }
+        }
+      });
+    });
+  });
+}
+
+let bannerInterval;
+function startBannerRotation() {
+  clearInterval(bannerInterval);
+  const slides = document.querySelectorAll(".slide");
+  if (slides.length <= 1) return;
+  let current = 0;
+  bannerInterval = setInterval(() => {
+    slides[current].classList.remove("active");
+    current = (current + 1) % slides.length;
+    slides[current].classList.add("active");
+  }, 4000);
+}
+
+function toggleBanner(id, status) {
+  db.ref(`banners/${id}/active`).set(status);
+}
+
+function deleteBanner(id) {
+  db.ref(`banners/${id}`).remove();
+}
+
+// 5. Products System
+let allProducts = [];
+function listenProducts() {
+  db.ref("products").on("value", snap => {
+    allProducts = [];
+    snap.forEach(child => {
+      allProducts.push({ id: child.key, ...child.val() });
+    });
     renderProducts();
     renderAdminProducts();
   });
 
-  db.ref('banners').on('value', snapshot => {
-    const data = snapshot.val() || {};
-    bannersCache = Object.values(data);
-    renderBanners();
-    renderAdminBanners();
+  // Filter Categories
+  document.querySelectorAll(".cat-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      document.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
+      e.target.classList.add("active");
+      currentCategory = e.target.getAttribute("data-cat");
+      renderProducts();
+    });
   });
 
-  db.ref('settings/storeStatus').on('value', snapshot => {
-    const status = snapshot.val() || "OPEN";
-    document.getElementById('store-status-badge').innerText = `STORE ${status}`;
-    document.getElementById('footer-store-status').innerText = status;
-    const ownerText = document.getElementById('owner-store-status-text');
-    if(ownerText) ownerText.innerText = status;
-  });
-
-  db.ref('orders').on('value', snapshot => {
-    const orders = snapshot.val() || {};
-    renderUserOrders(orders);
-    renderAdminOrders(orders);
-    updateDashboardStats(orders);
-  });
+  document.getElementById("btn-add-product").addEventListener("click", () => showProductModal());
 }
 
-// Navigation View Switcher
-function switchView(viewId) {
-  document.querySelectorAll('.view-section').forEach(el => el.classList.remove('active'));
-  document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
-  
-  const target = document.getElementById(viewId);
-  if (target) target.classList.add('active');
-  window.scrollTo(0, 0);
-}
-
-function toggleDrawer() {
-  document.getElementById('mobile-drawer').classList.toggle('open');
-}
-
-document.getElementById('hamburger-btn').addEventListener('click', toggleDrawer);
-
-// Render Product Catalog
 function renderProducts() {
-  const homeGrid = document.getElementById('home-product-grid');
-  const allGrid = document.getElementById('all-product-grid');
-  const commGrid = document.getElementById('community-product-grid');
-  const searchQuery = document.getElementById('search-input').value.toLowerCase();
-  
-  let html = '';
-  let commHtml = '';
-  
-  Object.keys(productsCache).forEach(key => {
-    const p = productsCache[key];
-    if (p.status === 'DISABLED') return;
-    
-    const matchesCategory = (activeCategoryFilter === 'Semua') ||
-                            (activeCategoryFilter === 'Featured' && p.isFeatured) ||
-                            (p.category === activeCategoryFilter);
-    const matchesSearch = p.name.toLowerCase().includes(searchQuery);
+  const grid = document.getElementById("product-grid");
+  const communityGrid = document.getElementById("community-product-grid");
+  grid.innerHTML = "";
+  communityGrid.innerHTML = "";
 
-    if (matchesCategory && matchesSearch) {
-      const card = `
-        <div class="product-card">
-          <img src="${p.imageUrl}" class="product-img" alt="${p.name}" onerror="this.src='https://via.placeholder.com/300x180?text=No+Image'">
-          <div class="product-info">
-            <div class="product-title">${p.name}</div>
-            <div class="product-seller">Seller: ${p.sellerName || 'Official'}</div>
-            <div class="product-price">${p.isCommunityOnly ? p.pointPrice + ' POINT' : 'Rp ' + Number(p.price).toLocaleString('id-ID')}</div>
-            <button class="btn-cyan w-full" onclick="openProductDetail('${key}')">BELI SEKARANG</button>
-          </div>
+  allProducts.forEach(p => {
+    const isCommunity = p.communityOnly || p.category === "Community Only";
+    const buyDisabled = storeClosed || p.stock <= 0;
+
+    const cardHTML = `
+      <div class="product-card">
+        <img src="${p.imageUrl || 'https://via.placeholder.com/150'}" class="product-img" alt="${p.name}">
+        <div class="product-info">
+          <div class="product-title">${p.name}</div>
+          <div class="product-price">${isCommunity ? p.price + ' Point' : 'Rp' + Number(p.price).toLocaleString()}</div>
+          <div class="product-seller">Seller: ${p.seller || 'Official'} | Stock: ${p.stock}</div>
+          <button class="btn-buy" ${buyDisabled ? 'disabled' : ''} onclick="buyProduct('${p.id}')">
+            ${storeClosed ? 'STORE CLOSED' : (p.stock <= 0 ? 'HABIS' : 'BELI')}
+          </button>
         </div>
-      `;
-      
-      if (p.isCommunityOnly) {
-        commHtml += card;
-      } else {
-        html += card;
+      </div>
+    `;
+
+    if (isCommunity) {
+      communityGrid.innerHTML += cardHTML;
+    } else {
+      if (currentCategory === "Semua" || p.category === currentCategory) {
+        grid.innerHTML += cardHTML;
       }
     }
   });
 
-  const empty = `<p class="text-muted">Tidak ada produk ditemukan.</p>`;
-  if (homeGrid) homeGrid.innerHTML = html || empty;
-  if (allGrid) allGrid.innerHTML = html || empty;
-  if (commGrid) commGrid.innerHTML = commHtml || `<p class="text-muted">Tidak ada item khusus komunitas.</p>`;
-}
-
-function setCategoryFilter(cat, btn) {
-  activeCategoryFilter = cat;
-  document.querySelectorAll('.category-pills .pill').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  renderProducts();
-}
-
-// Product Detail Modal
-function openProductDetail(key) {
-  const p = productsCache[key];
-  if (!p) return;
-  
-  const body = document.getElementById('product-detail-body');
-  body.innerHTML = `
-    <div>
-      <img src="${p.imageUrl}" style="width:100%; border-radius:8px;" alt="${p.name}">
-    </div>
-    <div>
-      <h2>${p.name}</h2>
-      <p class="text-muted mt-2">${p.description}</p>
-      <div class="mt-3">
-        <p><strong>Kategori:</strong> ${p.category}</p>
-        <p><strong>Stok:</strong> ${p.stock}</p>
-        <p><strong>Seller:</strong> ${p.sellerName || 'Official'}</p>
-      </div>
-      <div class="product-price mt-3" style="font-size:1.5rem">
-        ${p.isCommunityOnly ? p.pointPrice + ' POINT' : 'Rp ' + Number(p.price).toLocaleString('id-ID')}
-      </div>
-      <button class="btn-cyan w-full mt-4" onclick="startCheckout('${key}')">BUY NOW</button>
-    </div>
-  `;
-  document.getElementById('product-detail-modal').classList.add('open');
-}
-
-function closeModal(id) {
-  document.getElementById(id).classList.remove('open');
-}
-
-// Banner Slider Render
-function renderBanners() {
-  const slider = document.getElementById('banner-slider');
-  const dots = document.getElementById('banner-dots');
-  if (!bannersCache.length) {
-    slider.innerHTML = `<div class="banner-slide active" style="background-image:url('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe')"><div class="banner-caption"><h3>Store Logistik & Perlengkapan</h3></div></div>`;
-    return;
-  }
-  
-  let slideHtml = '';
-  let dotHtml = '';
-  bannersCache.forEach((b, idx) => {
-    if (b.status === 'DISABLED') return;
-    slideHtml += `
-      <div class="banner-slide ${idx === 0 ? 'active' : ''}" style="background-image:url('${b.imageUrl}')">
-        <div class="banner-caption"><h3>${b.title || 'Special Promo'}</h3></div>
-      </div>
-    `;
-    dotHtml += `<div class="dot ${idx === 0 ? 'active' : ''}"></div>`;
-  });
-  slider.innerHTML = slideHtml;
-  dots.innerHTML = dotHtml;
-}
-
-// Checkout Step System
-function startCheckout(productKey) {
-  closeModal('product-detail-modal');
-  if (!currentUser) {
-    Swal.fire('Login Diperlukan', 'Silakan login terlebih dahulu untuk bertransaksi.', 'warning');
-    openAuthModal();
-    return;
-  }
-  
-  db.ref('settings/storeStatus').once('value', snap => {
-    if (snap.val() === 'CLOSED') {
-      Swal.fire('Store Sedang Ditutup', 'Toko sementara tidak menerima orderan baru.', 'error');
-      return;
-    }
-    
-    currentCheckoutProduct = { key: productKey, ...productsCache[productKey] };
-    switchView('checkout-view');
-    renderCheckoutStep(1);
-  });
-}
-
-function renderCheckoutStep(step) {
-  const container = document.getElementById('checkout-content');
-  document.querySelectorAll('.step-item').forEach((el, i) => {
-    el.classList.toggle('active', i + 1 === step);
-  });
-
-  const p = currentCheckoutProduct;
-
-  if (step === 1) {
-    container.innerHTML = `
-      <h3>01 Ringkasan Produk</h3>
-      <p class="mt-2"><strong>${p.name}</strong></p>
-      <p class="text-cyan">${p.isCommunityOnly ? p.pointPrice + ' POINT' : 'Rp ' + Number(p.price).toLocaleString('id-ID')}</p>
-      <button class="btn-cyan mt-4" onclick="renderCheckoutStep(2)">Lanjut ke Payment</button>
-    `;
-  } else if (step === 2) {
-    container.innerHTML = `
-      <h3>02 Pilih Metode Pembayaran</h3>
-      <div class="mt-3">
-        ${p.isCommunityOnly ? `
-          <button class="btn-cyan-outline w-full mt-2" onclick="processPointPayment()">Bayar Menggunakan Point (${p.pointPrice} PT)</button>
-        ` : `
-          <button class="btn-cyan-outline w-full mt-2" onclick="confirmPaymentMethod('GOPAY')">GoPay (085175218022)</button>
-          <button class="btn-cyan-outline w-full mt-2" onclick="confirmPaymentMethod('POINT')">Point Internal (${p.pointPrice || 500} PT)</button>
-        `}
-      </div>
-    `;
-  }
-}
-
-// Payment Processing
-function processPointPayment() {
-  const cost = currentCheckoutProduct.pointPrice || 500;
-  if ((userProfile.pointBalance || 0) < cost) {
-    Swal.fire('Point Tidak Cukup', 'Saldo Point anda tidak mencukupi.', 'error');
-    return;
-  }
-
-  // Atomic Point Transaction
-  db.ref(`users/${currentUser.uid}/pointBalance`).transaction(current => {
-    if ((current || 0) >= cost) {
-      return current - cost;
-    } else {
-      return; // Abort
-    }
-  }, (error, committed) => {
-    if (committed) {
-      createOrderRecord('POINT', 'PAID');
-      Swal.fire('Pembayaran Point Berhasil', 'Order berhasil diproses!', 'success');
-    } else {
-      Swal.fire('Gagal', 'Transaksi Point gagal.', 'error');
-    }
-  });
-}
-
-function confirmPaymentMethod(method) {
-  if (method === 'POINT') {
-    processPointPayment();
-  } else {
-    createOrderRecord('GOPAY', 'WAITING_PAYMENT');
-  }
-}
-
-function createOrderRecord(method, status) {
-  const now = Date.now();
-  const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const randNum = Math.floor(1000 + Math.random() * 9000);
-  const orderId = `ORD-${dateStr}-${randNum}`;
-  const ticketId = `TCK-${dateStr}-${randNum}`;
-
-  const orderData = {
-    orderId,
-    userId: currentUser.uid,
-    username: userProfile.displayName || "User",
-    productId: currentCheckoutProduct.key,
-    productName: currentCheckoutProduct.name,
-    sellerId: currentCheckoutProduct.sellerId || "MAIN",
-    sellerName: currentCheckoutProduct.sellerName || "Official",
-    price: currentCheckoutProduct.price,
-    paymentMethod: method,
-    status: status,
-    createdAt: now,
-    expiredAt: now + (24 * 60 * 60 * 1000), // 24 jam expiration
-    ticketId
-  };
-
-  db.ref(`orders/${orderId}`).set(orderData);
-  
-  // Create Automatic Ticket
-  db.ref(`tickets/${ticketId}`).set({
-    ticketId,
-    orderId,
-    userId: currentUser.uid,
-    sellerId: currentCheckoutProduct.sellerId || "MAIN",
-    createdAt: now,
-    status: "OPEN"
-  });
-
-  document.getElementById('checkout-content').innerHTML = `
-    <h3>04 Order Created!</h3>
-    <p class="mt-2">ID Order: <strong>${orderId}</strong></p>
-    <p>Status: <span class="text-cyan">${status}</span></p>
-    ${method === 'GOPAY' ? '<p class="mt-2">Silakan transfer GoPay ke: <strong>085175218022</strong></p>' : ''}
-    <button class="btn-cyan mt-4" onclick="switchView('orders-view')">Lihat Orders Saya</button>
-  `;
-}
-
-// Render Orders
-function renderUserOrders(allOrders) {
-  const container = document.getElementById('orders-list-container');
-  if (!currentUser) return;
-  
-  let html = '';
-  Object.values(allOrders).forEach(ord => {
-    if (ord.userId === currentUser.uid) {
-      const isExpired = Date.now() > ord.expiredAt && ord.status === 'WAITING_PAYMENT';
-      const statusText = isExpired ? 'EXPIRED' : ord.status;
-      
-      html += `
-        <div class="card-panel mt-3" style="background:var(--bg-card); padding:1rem; border-radius:8px; border:1px solid var(--border-color);">
-          <div class="flex-between">
-            <strong>${ord.orderId}</strong>
-            <span class="text-cyan">${statusText}</span>
-          </div>
-          <p class="mt-2">${ord.productName}</p>
-          <p class="text-muted fs-sm">Payment: ${ord.paymentMethod}</p>
-          <button class="btn-cyan-outline mt-2" onclick="openTicketChat('${ord.ticketId}')">Buka Ticket Bantuan</button>
-        </div>
-      `;
-    }
-  });
-  container.innerHTML = html || `<p class="text-muted">Belum ada pesanan.</p>`;
-}
-
-// Ticket Private Chat System
-function openTicketChat(ticketId) {
-  currentActiveTicketId = ticketId;
-  switchView('tickets-view');
-  document.getElementById('no-ticket-selected').classList.add('hidden');
-  document.getElementById('active-chat-container').classList.remove('hidden');
-  
-  db.ref(`ticketMessages/${ticketId}`).on('value', snapshot => {
-    const msgs = snapshot.val() || {};
-    const box = document.getElementById('chat-messages');
-    let html = '';
-    Object.values(msgs).forEach(m => {
-      const isMe = m.senderId === currentUser.uid;
-      html += `<div class="msg-bubble ${isMe ? 'me' : 'other'}">${m.message}</div>`;
-    });
-    box.innerHTML = html;
-    box.scrollTop = box.scrollHeight;
-  });
-}
-
-function sendTicketMessage() {
-  const input = document.getElementById('chat-input');
-  const msg = input.value.trim();
-  if (!msg || !currentActiveTicketId) return;
-
-  const msgId = db.ref(`ticketMessages/${currentActiveTicketId}`).push().key;
-  db.ref(`ticketMessages/${currentActiveTicketId}/${msgId}`).set({
-    senderId: currentUser.uid,
-    senderName: userProfile.displayName || "User",
-    message: msg,
-    timestamp: Date.now()
-  });
-  input.value = '';
-}
-
-// Auth Handlers
-function openAuthModal() {
-  document.getElementById('auth-modal').classList.add('open');
-}
-
-function toggleAuthMode() {
-  isAuthSignUp = !isAuthSignUp;
-  document.getElementById('auth-title').innerText = isAuthSignUp ? "Daftar Akun Baru" : "Login / Masuk";
-  document.getElementById('auth-toggle-text').innerText = isAuthSignUp ? "Sudah punya akun? Login." : "Belum punya akun? Daftar disini.";
-}
-
-function handleAuthSubmit() {
-  const email = document.getElementById('auth-email').value;
-  const pass = document.getElementById('auth-password').value;
-
-  if (isAuthSignUp) {
-    auth.createUserWithEmailAndPassword(email, pass)
-      .then(res => {
-        db.ref(`users/${res.user.uid}`).set({
-          displayName: email.split('@')[0],
-          role: "USER",
-          pointBalance: 0,
-          createdAt: Date.now()
-        });
-        closeModal('auth-modal');
-        Swal.fire('Registrasi Berhasil', 'Akun dibuat!', 'success');
-      })
-      .catch(err => Swal.fire('Error', err.message, 'error'));
-  } else {
-    auth.signInWithEmailAndPassword(email, pass)
-      .then(() => {
-        closeModal('auth-modal');
-        Swal.fire('Login Berhasil', 'Selamat datang!', 'success');
-      })
-      .catch(err => Swal.fire('Error', err.message, 'error'));
-  }
-}
-
-function handleLogout() {
-  auth.signOut().then(() => {
-    switchView('home');
-    Swal.fire('Logged Out', 'Anda berhasil keluar.', 'info');
-  });
-}
-
-function updateDisplayName() {
-  const name = document.getElementById('edit-display-name').value.trim();
-  if (!name) return;
-  db.ref(`users/${currentUser.uid}/displayName`).set(name);
-  Swal.fire('Sukses', 'Nama berhasil diubah.', 'success');
-}
-
-// Admin Panel Logics
-function switchAdminTab(tab) {
-  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('active'));
-  document.getElementById(`admin-tab-${tab}`).classList.add('active');
+  document.getElementById("dash-total-products").innerText = allProducts.length;
 }
 
 function renderAdminProducts() {
-  const tbody = document.getElementById('admin-product-table');
-  if (!tbody) return;
-  let html = '';
-  Object.keys(productsCache).forEach(k => {
-    const p = productsCache[k];
-    html += `
+  const tbody = document.getElementById("admin-product-table");
+  tbody.innerHTML = "";
+  allProducts.forEach(p => {
+    tbody.innerHTML += `
       <tr>
+        <td><img src="${p.imageUrl}" width="40" height="40" style="object-fit:cover;"></td>
         <td>${p.name}</td>
+        <td>${p.price}</td>
         <td>${p.category}</td>
-        <td>Rp ${p.price}</td>
         <td>${p.stock}</td>
-        <td>${p.sellerName || 'Official'}</td>
-        <td><button class="btn-danger" onclick="deleteProduct('${k}')">Hapus</button></td>
+        <td>
+          <button onclick="editProduct('${p.id}')" class="btn-sm">Edit</button>
+          <button onclick="deleteProduct('${p.id}')" class="btn-sm" style="background:#ef4444; color:white;">Hapus</button>
+        </td>
       </tr>
     `;
   });
-  tbody.innerHTML = html;
 }
 
-function openProductModal() {
-  document.getElementById('product-form-modal').classList.add('open');
-}
-
-function saveProduct() {
-  const id = db.ref('products').push().key;
-  const data = {
-    name: document.getElementById('pform-name').value,
-    description: document.getElementById('pform-desc').value,
-    price: Number(document.getElementById('pform-price').value),
-    pointPrice: Number(document.getElementById('pform-point').value),
-    imageUrl: document.getElementById('pform-image').value,
-    category: document.getElementById('pform-category').value,
-    stock: Number(document.getElementById('pform-stock').value),
-    sellerName: document.getElementById('pform-seller').value,
-    isCommunityOnly: document.getElementById('pform-community').checked,
-    isFeatured: document.getElementById('pform-featured').checked,
-    status: 'ACTIVE'
-  };
-  db.ref(`products/${id}`).set(data);
-  closeModal('product-form-modal');
-  Swal.fire('Sukses', 'Produk ditambahkan.', 'success');
-}
-
-function deleteProduct(id) {
-  db.ref(`products/${id}`).remove();
-}
-
-function addBannerPrompt() {
-  if (bannersCache.length >= 15) {
-    Swal.fire('Batas Maksimum', 'Maximum 15 banners allowed.', 'warning');
-    return;
-  }
+function showProductModal(productId = null) {
+  const p = productId ? allProducts.find(x => x.id === productId) : {};
   Swal.fire({
-    title: 'Masukkan Image URL Banner',
-    input: 'url',
-    showCancelButton: true
-  }).then(res => {
-    if (res.value) {
-      const id = db.ref('banners').push().key;
-      db.ref(`banners/${id}`).set({ imageUrl: res.value, status: 'ACTIVE' });
+    title: productId ? 'Edit Produk' : 'Tambah Produk',
+    html: `
+      <input type="text" id="p-name" class="swal2-input" placeholder="Nama Produk" value="${p.name || ''}">
+      <input type="number" id="p-price" class="swal2-input" placeholder="Harga / Point" value="${p.price || ''}">
+      <input type="text" id="p-image" class="swal2-input" placeholder="URL Foto" value="${p.imageUrl || ''}">
+      <select id="p-category" class="swal2-input">
+        <option value="Asset" ${p.category==='Asset'?'selected':''}>Asset</option>
+        <option value="Baju" ${p.category==='Baju'?'selected':''}>Baju</option>
+        <option value="Perlengkapan" ${p.category==='Perlengkapan'?'selected':''}>Perlengkapan</option>
+        <option value="Community Only" ${p.category==='Community Only'?'selected':''}>Community Only</option>
+      </select>
+      <input type="number" id="p-stock" class="swal2-input" placeholder="Stock" value="${p.stock || 10}">
+      <input type="text" id="p-seller" class="swal2-input" placeholder="Seller" value="${p.seller || 'Admin'}">
+      <div style="margin-top:10px; text-align:left; font-size:14px;">
+        <label><input type="checkbox" id="p-community" ${p.communityOnly ? 'checked':''}> Community Only (Point Payment)</label>
+      </div>
+    `,
+    showCancelButton: true,
+    confirmButtonText: 'Simpan'
+  }).then(r => {
+    if (r.isConfirmed) {
+      const data = {
+        name: document.getElementById('p-name').value,
+        price: Number(document.getElementById('p-price').value),
+        imageUrl: document.getElementById('p-image').value,
+        category: document.getElementById('p-category').value,
+        stock: Number(document.getElementById('p-stock').value),
+        seller: document.getElementById('p-seller').value,
+        communityOnly: document.getElementById('p-community').checked
+      };
+
+      if (productId) {
+        db.ref(`products/${productId}`).update(data);
+      } else {
+        db.ref("products").push(data);
+      }
+      Swal.fire('Berhasil', 'Data produk diperbarui', 'success');
     }
   });
 }
 
-function renderAdminBanners() {
-  const container = document.getElementById('admin-banner-list');
-  if (!container) return;
-  let html = '';
-  bannersCache.forEach(b => {
-    html += `<img src="${b.imageUrl}" style="width:100%; height:100px; object-fit:cover; border-radius:8px;">`;
+function editProduct(id) { showProductModal(id); }
+function deleteProduct(id) {
+  Swal.fire({
+    title: 'Hapus Produk?',
+    icon: 'warning',
+    showCancelButton: true,
+    confirmButtonText: 'Ya, Hapus'
+  }).then(r => {
+    if(r.isConfirmed) db.ref(`products/${id}`).remove();
   });
-  container.innerHTML = html;
 }
 
-function renderAdminOrders(orders) {
-  const tbody = document.getElementById('admin-order-table');
-  if (!tbody) return;
-  let html = '';
-  Object.values(orders).forEach(o => {
-    html += `
-      <tr>
-        <td>${o.orderId}</td>
-        <td>${o.username}</td>
-        <td>${o.productName}</td>
-        <td>Rp ${o.price}</td>
-        <td>${o.paymentMethod}</td>
-        <td>${o.status}</td>
-        <td><button class="btn-cyan" onclick="updateOrderStatus('${o.orderId}', 'COMPLETED')">Complete</button></td>
-      </tr>
-    `;
+// 6. Buying & Order System
+function buyProduct(productId) {
+  if (storeClosed) {
+    return Swal.fire("STORE CLOSED", "Toko sedang ditutup oleh Owner.", "error");
+  }
+
+  const p = allProducts.find(x => x.id === productId);
+  if (!p) return;
+
+  const isCommunity = p.communityOnly || p.category === "Community Only";
+
+  if (isCommunity) {
+    // Transaction Firebase untuk Point
+    const userRef = db.ref(`users/${currentUser.id}/points`);
+    userRef.transaction(currentPoints => {
+      if ((currentPoints || 0) >= p.price) {
+        return currentPoints - p.price;
+      } else {
+        return; // Abort transaction
+      }
+    }, (error, committed, snapshot) => {
+      if (error) {
+        Swal.fire("Error", "Gagal memproses transaksi", "error");
+      } else if (!committed) {
+        Swal.fire("Point Tidak Cukup", "Point kamu tidak cukup untuk membeli produk ini.", "error");
+      } else {
+        // Point Replaced & Order Created
+        createOrder(p, "Point / Coin", "PAID");
+      }
+    });
+  } else {
+    // GoPay / Regular Payment
+    Swal.fire({
+      title: 'Konfirmasi Pembelian',
+      html: `
+        <p><strong>${p.name}</strong></p>
+        <p>Harga: Rp${p.price.toLocaleString()}</p>
+        <p style="margin-top:10px;">Metode Pembayaran:</p>
+        <select id="swal-payment-method" class="swal2-input">
+          <option value="GoPay">GoPay (085175218022)</option>
+        </select>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Lanjutkan Pembayaran'
+    }).then(r => {
+      if (r.isConfirmed) {
+        createOrder(p, "GoPay", "WAITING_PAYMENT");
+      }
+    });
+  }
+}
+
+function createOrder(product, paymentMethod, initialStatus) {
+  const now = new Date();
+  const dateStr = now.toISOString().slice(0,10).replace(/-/g,"");
+  const randNum = Math.floor(1000 + Math.random() * 9000);
+  const orderId = `ORD-${dateStr}-${randNum}`;
+  const expireTime = Date.now() + (24 * 60 * 60 * 1000); // 24 Jam
+
+  const orderData = {
+    orderId: orderId,
+    userId: currentUser.id,
+    userName: currentUser.name,
+    productName: product.name,
+    price: product.price,
+    paymentMethod: paymentMethod,
+    status: initialStatus,
+    createdAt: Date.now(),
+    expireAt: expireTime
+  };
+
+  db.ref(`orders/${orderId}`).set(orderData).then(() => {
+    // Auto Create Chat Ticket
+    db.ref(`tickets/${orderId}`).set({
+      orderId: orderId,
+      userId: currentUser.id,
+      userName: currentUser.name,
+      lastUpdate: Date.now()
+    });
+
+    // Curangi stok produk -1
+    db.ref(`products/${product.id}/stock`).set(Math.max(0, product.stock - 1));
+
+    if (paymentMethod === "GoPay") {
+      Swal.fire({
+        title: 'Instruksi Pembayaran GoPay',
+        html: `
+          <p>Silakan transfer sebesar <strong>Rp${product.price.toLocaleString()}</strong> ke:</p>
+          <h3 style="color:#06b6d4; margin:10px 0;">085175218022</h3>
+          <p>Order ID: <strong>${orderId}</strong></p>
+          <p style="font-size:12px; color:#666;">Silakan kirim bukti pembayaran via Ticket Support.</p>
+        `,
+        icon: 'info'
+      });
+    } else {
+      Swal.fire("Order Berhasil", "Pembayaran via Point Berhasil!", "success");
+    }
   });
-  tbody.innerHTML = html;
+}
+
+// 7. My Orders & Expiry Countdown Listener
+function listenOrders() {
+  db.ref("orders").on("value", snap => {
+    const list = document.getElementById("orders-list");
+    const adminTable = document.getElementById("admin-order-table");
+    list.innerHTML = "";
+    adminTable.innerHTML = "";
+
+    let total = 0;
+    let pending = 0;
+
+    snap.forEach(child => {
+      const o = child.val();
+      total++;
+
+      // Automatic Check Expiration (24 Hours)
+      if (o.status === "WAITING_PAYMENT" && Date.now() > o.expireAt) {
+        db.ref(`orders/${o.orderId}/status`).set("EXPIRED");
+        o.status = "EXPIRED";
+      }
+
+      if (o.status === "PENDING" || o.status === "WAITING_PAYMENT") pending++;
+
+      // User Order View
+      if (o.userId === currentUser.id) {
+        const timeLeft = Math.max(0, Math.floor((o.expireAt - Date.now()) / 1000));
+        const hours = Math.floor(timeLeft / 3600);
+        const mins = Math.floor((timeLeft % 3600) / 60);
+
+        list.innerHTML += `
+          <div class="order-card">
+            <div class="order-info">
+              <h4>${o.orderId} - ${o.productName}</h4>
+              <p>Harga: ${typeof o.price === 'number' ? 'Rp'+o.price.toLocaleString() : o.price} | Method: ${o.paymentMethod}</p>
+              ${o.status === 'WAITING_PAYMENT' ? `<p style="color:#eab308; font-weight:bold;">Sisa Waktu Bayar: ${hours}j ${mins}m</p>` : ''}
+            </div>
+            <div>
+              <span class="status-badge status-${o.status}">${o.status}</span>
+              <button onclick="openTicketModal('${o.orderId}')" class="btn-primary btn-sm mt-2">Chat Ticket</button>
+            </div>
+          </div>
+        `;
+      }
+
+      // Admin Table View
+      adminTable.innerHTML += `
+        <tr>
+          <td>${o.orderId}</td>
+          <td>${o.userName}</td>
+          <td>${o.productName}</td>
+          <td>${o.paymentMethod}</td>
+          <td><span class="status-badge status-${o.status}">${o.status}</span></td>
+          <td>
+            <select onchange="updateOrderStatus('${o.orderId}', this.value)" class="btn-sm">
+              <option value="PENDING" ${o.status==='PENDING'?'selected':''}>PENDING</option>
+              <option value="WAITING_PAYMENT" ${o.status==='WAITING_PAYMENT'?'selected':''}>WAITING_PAYMENT</option>
+              <option value="PAID" ${o.status==='PAID'?'selected':''}>PAID</option>
+              <option value="PROCESSING" ${o.status==='PROCESSING'?'selected':''}>PROCESSING</option>
+              <option value="COMPLETED" ${o.status==='COMPLETED'?'selected':''}>COMPLETED</option>
+              <option value="CANCELLED" ${o.status==='CANCELLED'?'selected':''}>CANCELLED</option>
+            </select>
+          </td>
+        </tr>
+      `;
+    });
+
+    document.getElementById("dash-total-orders").innerText = total;
+    document.getElementById("dash-pending-orders").innerText = pending;
+  });
 }
 
 function updateOrderStatus(orderId, status) {
   db.ref(`orders/${orderId}/status`).set(status);
+  Swal.fire("Status Updated", `Order ${orderId} diubah ke ${status}`, "success");
 }
 
-function updateDashboardStats(orders) {
-  const list = Object.values(orders);
-  document.getElementById('stat-orders').innerText = list.length;
-  document.getElementById('stat-pending').innerText = list.filter(o => o.status === 'WAITING_PAYMENT').length;
-  document.getElementById('stat-completed').innerText = list.filter(o => o.status === 'COMPLETED').length;
-  document.getElementById('stat-products').innerText = Object.keys(productsCache).length;
+// 8. Ticket Realtime Chat System
+function openTicketModal(orderId) {
+  currentActiveTicket = orderId;
+  document.getElementById("modal-ticket-title").innerText = `Ticket Support #${orderId}`;
+  document.getElementById("ticket-modal").classList.remove("hidden");
+  listenTicketMessages(orderId, "user-chat-messages");
 }
 
-// Owner Controls
-function toggleStoreStatus(status) {
-  db.ref('settings/storeStatus').set(status);
-  Swal.fire('Status Disimpan', `Toko sekarang ${status}`, 'success');
+document.getElementById("close-ticket-modal").addEventListener("click", () => {
+  document.getElementById("ticket-modal").classList.add("hidden");
+});
+
+document.getElementById("btn-send-chat").addEventListener("click", () => {
+  const input = document.getElementById("chat-input");
+  if (input.value.trim() && currentActiveTicket) {
+    db.ref(`tickets/${currentActiveTicket}/messages`).push({
+      sender: currentUser.name,
+      role: currentUser.role,
+      text: input.value.trim(),
+      timestamp: Date.now()
+    });
+    input.value = "";
+  }
+});
+
+function listenTicketMessages(orderId, containerId) {
+  db.ref(`tickets/${orderId}/messages`).on("value", snap => {
+    const box = document.getElementById(containerId);
+    box.innerHTML = "";
+    snap.forEach(child => {
+      const msg = child.val();
+      const isMe = msg.sender === currentUser.name;
+      box.innerHTML += `
+        <div class="chat-msg ${msg.role === 'ADMIN' || msg.role === 'OWNER' ? 'admin' : 'user'}">
+          <strong>${msg.sender}:</strong> ${msg.text}
+        </div>
+      `;
+    });
+    box.scrollTop = box.scrollHeight;
+  });
 }
 
-function assignAdminRole() {
-  const uid = document.getElementById('owner-target-uid').value.trim();
-  if (!uid) return;
-  db.ref(`users/${uid}/role`).set('ADMIN');
-  db.ref(`admins/${uid}`).set({ role: 'ADMIN' });
-  Swal.fire('Admin Diangkat', `User ${uid} telah menjadi Admin.`, 'success');
+// Admin Ticket System
+function listenAdminTickets() {
+  db.ref("tickets").on("value", snap => {
+    const list = document.getElementById("ticket-list-admin");
+    list.innerHTML = "";
+    snap.forEach(child => {
+      const t = child.val();
+      list.innerHTML += `
+        <div class="ticket-item" onclick="loadAdminChat('${t.orderId}')">
+          <strong>${t.orderId}</strong>
+          <p style="font-size:12px;">User: ${t.userName}</p>
+        </div>
+      `;
+    });
+  });
 }
 
-function setUserPointsDirect() {
-  const uid = document.getElementById('point-target-uid').value.trim();
-  const amt = Number(document.getElementById('point-amount-input').value);
-  if (!uid) return;
-  db.ref(`users/${uid}/pointBalance`).set(amt);
-  Swal.fire('Point Disimpan', `Point user diset ke ${amt}`, 'success');
+function loadAdminChat(orderId) {
+  currentActiveTicket = orderId;
+  const chatArea = document.getElementById("admin-chat-area");
+  chatArea.innerHTML = `
+    <h4>Chat Ticket #${orderId}</h4>
+    <div class="chat-box" id="admin-chat-messages"></div>
+    <div class="chat-input-group">
+      <input type="text" id="admin-chat-input" placeholder="Tulis balasan admin...">
+      <button onclick="sendAdminChat()" class="btn-primary">Kirim</button>
+    </div>
+  `;
+  listenTicketMessages(orderId, "admin-chat-messages");
+}
+
+function sendAdminChat() {
+  const input = document.getElementById("admin-chat-input");
+  if (input.value.trim() && currentActiveTicket) {
+    db.ref(`tickets/${currentActiveTicket}/messages`).push({
+      sender: "Admin (" + currentUser.name + ")",
+      role: "ADMIN",
+      text: input.value.trim(),
+      timestamp: Date.now()
+    });
+    input.value = "";
+  }
+}
+
+// 9. Admin Tabs Nav & Management
+function setupAdminTabs() {
+  document.querySelectorAll(".admin-tab-btn").forEach(btn => {
+    btn.addEventListener("click", (e) => {
+      document.querySelectorAll(".admin-tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-pane").forEach(p => p.classList.remove("active"));
+
+      e.target.classList.add("active");
+      const tabId = e.target.getAttribute("data-tab");
+      document.getElementById(tabId).classList.add("active");
+
+      if (tabId === "tab-ticket") {
+        listenAdminTickets();
+      }
+    });
+  });
+
+  // Owner Management: Add Admin
+  document.getElementById("btn-create-admin").addEventListener("click", () => {
+    const user = document.getElementById("new-admin-username").value;
+    const pass = document.getElementById("new-admin-password").value;
+    if (user && pass) {
+      db.ref("admins").push({ username: user, password: pass, role: "ADMIN" }).then(() => {
+        Swal.fire("Berhasil", "Admin baru ditambahkan", "success");
+        document.getElementById("new-admin-username").value = "";
+        document.getElementById("new-admin-password").value = "";
+      });
+    }
+  });
 }
