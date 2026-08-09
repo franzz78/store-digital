@@ -1,6 +1,8 @@
 /* ==========================================================================
-   FIREBASE INITIALIZATION
+   STORE LOGISTIK & PERLENGKAPAN - CORE APPLICATION SCRIPT
    ========================================================================== */
+
+// 1. FIREBASE INITIALIZATION
 const firebaseConfig = {
   apiKey: "AIzaSyD9BmV4XKXuMWa4PZHpb7Bbt-rHs61m3lE",
   databaseURL: "https://absensi-polri-default-rtdb.asia-southeast1.firebasedatabase.app",
@@ -10,1298 +12,1035 @@ const firebaseConfig = {
   appId: "1:19006760644:web:b980f54aea123e92ed4b91"
 };
 
-// Initialize Firebase App
+// Initialize Legacy/Compat Firebase
 if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+    firebase.initializeApp(firebaseConfig);
 }
-
 const db = firebase.database();
 const auth = firebase.auth();
 
-/* ==========================================================================
-   GLOBAL APP STATE
-   ========================================================================== */
-const app = {
-  currentUser: {
+// 2. STATE MANAGEMENT
+let currentUser = {
     uid: null,
-    displayName: "Guest",
+    username: "Guest",
     role: "GUEST",
-    points: 0,
-    isLoggedIn: false
-  },
-  storeStatus: {
+    points: 0
+};
+
+let storeData = {
     isOpen: true,
-    announcement: ""
-  },
-  products: {},
-  banners: [],
-  orders: {},
-  tickets: {},
-  ticketMessages: {},
-  paymentMethods: {},
-  sellers: {},
-  admins: {},
-  allUsers: {},
-  currentActiveTicketId: null,
-  sliderInterval: null,
-  currentSlideIndex: 0,
-  selectedProductForCheckout: null,
+    products: {},
+    banners: {},
+    orders: {},
+    tickets: {},
+    ticketMessages: {},
+    payments: {},
+    users: {},
+    admins: {}
+};
 
-  init() {
-    this.setupPWA();
-    this.runLoadingScreen();
-    this.bindEvents();
-    this.setupAuthListener();
-    this.setupRealtimeDatabaseListeners();
-  },
+let selectedProductCheckout = null;
+let activeTicketId = null;
+let currentBannerIndex = 0;
+let bannerAutoplayTimer = null;
 
-  /* ------------------------------------------------------------------------
-     PWA SERVICE WORKER
-     ------------------------------------------------------------------------ */
-  setupPWA() {
+// Initial Hardcoded Configs for first boot
+const INIT_OWNER_PWD_HASH = "OWNERSTORE1999/2026##";
+const INIT_ADMIN_PWD_HASH = "ADMINISTRATORSTORE1999##";
+
+// 3. APPLICATION INIT & SERVICE WORKER
+window.addEventListener('DOMContentLoaded', () => {
+    initPWA();
+    startLoadingAnimation();
+    initAuthSession();
+    attachRealtimeListeners();
+});
+
+function initPWA() {
     if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('./sw.js').then(reg => {
-          console.log('SW Registered:', reg.scope);
-        }).catch(err => console.log('SW Reg Fail:', err));
-      });
+        navigator.serviceWorker.register('sw.js')
+            .then(reg => console.log('Service Worker Registered'))
+            .catch(err => console.error('SW Reg Failed:', err));
     }
-  },
+}
 
-  /* ------------------------------------------------------------------------
-     LOADING SCREEN ENGINE
-     ------------------------------------------------------------------------ */
-  runLoadingScreen() {
+// 4. LOADING SCREEN ANIMATION
+function startLoadingAnimation() {
     let progress = 0;
-    const bar = document.getElementById('loading-bar');
-    const text = document.getElementById('loading-text');
-    const screen = document.getElementById('loading-screen');
-
+    const progressBar = document.getElementById('progressBar');
+    const progressText = document.getElementById('progressText');
+    
     const interval = setInterval(() => {
-      progress += Math.floor(Math.random() * 15) + 5;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        setTimeout(() => {
-          screen.style.opacity = '0';
-          setTimeout(() => screen.classList.add('hidden'), 600);
-        }, 300);
-      }
-      bar.style.width = `${progress}%`;
-      text.innerText = `Loading ${progress}%`;
-    }, 100);
-  },
-
-  /* ------------------------------------------------------------------------
-     NAVIGATION & SPA ROUTER
-     ------------------------------------------------------------------------ */
-  navigateTo(sectionId) {
-    document.querySelectorAll('.spa-section').forEach(sec => sec.classList.remove('active'));
-    document.querySelectorAll('.nav-link').forEach(nl => nl.classList.remove('active'));
-
-    const targetSec = document.getElementById(`sec-${sectionId}`);
-    if (targetSec) targetSec.classList.add('active');
-
-    const targetNav = document.getElementById(`nl-${sectionId}`);
-    if (targetNav) targetNav.classList.add('active');
-
-    // Close Mobile Drawer
-    document.getElementById('mobile-drawer').classList.remove('active');
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  },
-
-  /* ------------------------------------------------------------------------
-     AUTHENTICATION & USER SYSTEM
-     ------------------------------------------------------------------------ */
-  setupAuthListener() {
-    auth.onAuthStateChanged(user => {
-      if (user) {
-        this.currentUser.uid = user.uid;
-        this.currentUser.isLoggedIn = true;
-
-        // Sync User Data Realtime
-        db.ref(`users/${user.uid}`).on('value', snapshot => {
-          const val = snapshot.val();
-          if (val) {
-            this.currentUser.displayName = val.displayName || "User";
-            this.currentUser.role = val.role || "USER";
-            this.currentUser.points = val.points || 0;
-          } else {
-            // First time Firebase Auth user
-            const defaultUser = {
-              uid: user.uid,
-              displayName: user.email ? user.email.split('@')[0] : "User",
-              role: "USER",
-              points: 0,
-              createdAt: firebase.database.ServerValue.TIMESTAMP
-            };
-            db.ref(`users/${user.uid}`).set(defaultUser);
-          }
-          this.updateUserInterface();
-        });
-      } else {
-        // Anonymous/Guest Mode fallback
-        let guestUid = localStorage.getItem('guest_uid');
-        if (!guestUid) {
-          guestUid = 'GST-' + Math.random().toString(36).substring(2, 9);
-          localStorage.setItem('guest_uid', guestUid);
+        progress += Math.floor(Math.random() * 15) + 10;
+        if (progress >= 100) {
+            progress = 100;
+            clearInterval(interval);
+            setTimeout(() => {
+                const screen = document.getElementById('loadingScreen');
+                screen.style.opacity = '0';
+                setTimeout(() => screen.classList.add('hidden'), 500);
+            }, 300);
         }
-        
-        const guestName = localStorage.getItem('guest_name') || "Guest";
+        progressBar.style.width = progress + '%';
+        progressText.innerText = `Loading ${progress}%`;
+    }, 120);
+}
 
-        this.currentUser = {
-          uid: guestUid,
-          displayName: guestName,
-          role: "GUEST",
-          points: parseInt(localStorage.getItem('guest_points') || "0"),
-          isLoggedIn: false
-        };
+// 5. AUTHENTICATION & USER SESSION
+function initAuthSession() {
+    let localUid = localStorage.getItem('store_user_uid');
+    let localName = localStorage.getItem('store_user_name');
 
-        this.updateUserInterface();
-      }
-    });
-  },
-
-  updateUserInterface() {
-    document.getElementById('user-display-name').innerText = this.currentUser.displayName;
-    document.getElementById('user-role-badge').innerText = this.currentUser.role;
-    document.getElementById('profile-name-text').innerText = this.currentUser.displayName;
-    document.getElementById('profile-role-text').innerText = `ROLE: ${this.currentUser.role}`;
-    document.getElementById('profile-uid-text').innerText = this.currentUser.uid;
-    document.getElementById('profile-points-text').innerText = `${this.currentUser.points.toLocaleString()} POINT`;
-    document.getElementById('profile-avatar-letter').innerText = this.currentUser.displayName.charAt(0).toUpperCase();
-    document.getElementById('community-user-points').innerText = `${this.currentUser.points.toLocaleString()} POINT`;
-
-    // Owner UI Controls
-    const ownerMenu = document.getElementById('owner-only-menu');
-    if (this.currentUser.role === 'OWNER') {
-      ownerMenu.classList.remove('hidden');
-      document.getElementById('admin-sidebar-role').innerText = "OWNER FULL ACCESS";
-    } else {
-      ownerMenu.classList.add('hidden');
-      document.getElementById('admin-sidebar-role').innerText = this.currentUser.role;
+    if (!localUid) {
+        localUid = 'USER_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+        localStorage.setItem('store_user_uid', localUid);
     }
-  },
+    if (!localName) {
+        localName = 'Guest_' + localUid.substring(5, 9);
+        localStorage.setItem('store_user_name', localName);
+    }
 
-  /* ------------------------------------------------------------------------
-     REALTIME DATABASE LISTENERS
-     ------------------------------------------------------------------------ */
-  setupRealtimeDatabaseListeners() {
+    currentUser.uid = localUid;
+    currentUser.username = localName;
+
+    // Firebase Auth Anonymous Sign In
+    auth.signInAnonymously().catch(err => console.log("Auth Anonymously Error:", err));
+
+    // Sync User Data to RTDB
+    db.ref('users/' + localUid).on('value', snapshot => {
+        const val = snapshot.val();
+        if (val) {
+            currentUser.username = val.username || localName;
+            currentUser.role = val.role || 'USER';
+            currentUser.points = val.points || 0;
+        } else {
+            // First time user registration in DB
+            db.ref('users/' + localUid).set({
+                uid: localUid,
+                username: localName,
+                role: 'USER',
+                points: 0,
+                createdAt: Date.now(),
+                lastLogin: Date.now()
+            });
+        }
+        updateUserUI();
+    });
+}
+
+function updateUserUI() {
+    document.getElementById('activeUsername').innerText = currentUser.username;
+    document.getElementById('profileUsername').innerText = currentUser.username;
+    document.getElementById('profileRole').innerText = currentUser.role;
+    document.getElementById('profileUid').innerText = currentUser.uid;
+    document.getElementById('profilePoints').innerText = `${currentUser.points.toLocaleString()} POINT`;
+
+    // Role Specific UI Visibility
+    const ownerMenus = document.getElementById('ownerOnlyMenus');
+    const adminLink = document.getElementById('nav-admin');
+
+    if (currentUser.role === 'OWNER') {
+        ownerMenus.classList.remove('hidden');
+        adminLink.classList.remove('hidden');
+        document.getElementById('adminSidebarRole').innerText = "OWNER";
+        document.getElementById('adminSidebarName').innerText = currentUser.username;
+        document.getElementById('btnLogoutAccount').classList.remove('hidden');
+        document.getElementById('btnLoginAccount').classList.add('hidden');
+    } else if (currentUser.role === 'ADMIN') {
+        ownerMenus.classList.add('hidden');
+        adminLink.classList.remove('hidden');
+        document.getElementById('adminSidebarRole').innerText = "ADMIN";
+        document.getElementById('adminSidebarName').innerText = currentUser.username;
+        document.getElementById('btnLogoutAccount').classList.remove('hidden');
+        document.getElementById('btnLoginAccount').classList.add('hidden');
+    } else {
+        ownerMenus.classList.add('hidden');
+        document.getElementById('btnLogoutAccount').classList.add('hidden');
+        document.getElementById('btnLoginAccount').classList.remove('hidden');
+    }
+}
+
+// 6. REALTIME DATABASE LISTENERS
+function attachRealtimeListeners() {
     // Store Status
     db.ref('storeStatus').on('value', snap => {
-      const val = snap.val();
-      if (val) {
-        this.storeStatus = val;
-        const alertBanner = document.getElementById('store-closed-banner');
-        if (!val.isOpen) {
-          alertBanner.classList.remove('hidden');
-        } else {
-          alertBanner.classList.add('hidden');
-        }
-      }
-    });
+        const val = snap.val();
+        storeData.isOpen = val ? val.isOpen : true;
+        const closedNotice = document.getElementById('storeClosedNotice');
+        const statusText = document.getElementById('currentStoreStatusText');
 
-    // Banners Listener
-    db.ref('banners').on('value', snap => {
-      const data = snap.val() || {};
-      this.banners = Object.values(data).filter(b => b.status === 'ACTIVE').sort((a,b) => a.order - b.order);
-      this.renderBannerSlider();
-      this.renderAdminBanners(data);
+        if (!storeData.isOpen) {
+            closedNotice.classList.remove('hidden');
+            if(statusText) statusText.innerText = "CLOSED";
+        } else {
+            closedNotice.classList.add('hidden');
+            if(statusText) statusText.innerText = "OPEN";
+        }
     });
 
     // Products Listener
     db.ref('products').on('value', snap => {
-      this.products = snap.val() || {};
-      this.renderProducts();
-      this.renderAdminProducts();
-      this.updateAdminDashboardStats();
+        storeData.products = snap.val() || {};
+        renderProducts();
+        renderAdminProducts();
+        updateStats();
+    });
+
+    // Banners Listener
+    db.ref('banners').on('value', snap => {
+        storeData.banners = snap.val() || {};
+        renderBanners();
+        renderAdminBanners();
     });
 
     // Orders Listener
     db.ref('orders').on('value', snap => {
-      this.orders = snap.val() || {};
-      this.checkExpiredOrders();
-      this.renderUserOrders();
-      this.renderAdminOrders();
-      this.updateAdminDashboardStats();
-    });
-
-    // Payment Methods Listener
-    db.ref('paymentMethods').on('value', snap => {
-      this.paymentMethods = snap.val() || {};
-      this.renderPublicPaymentMethods();
-      this.renderAdminPayments();
+        storeData.orders = snap.val() || {};
+        renderOrders();
+        renderAdminOrders();
+        updateStats();
+        checkOrderExpirations();
     });
 
     // Tickets Listener
     db.ref('tickets').on('value', snap => {
-      this.tickets = snap.val() || {};
-      this.renderUserTickets();
-      this.renderAdminTickets();
-      this.updateAdminDashboardStats();
+        storeData.tickets = snap.val() || {};
+        renderTickets();
+        renderAdminTickets();
+        updateStats();
     });
 
-    // Sellers & Admins Listener
-    db.ref('sellers').on('value', snap => {
-      this.sellers = snap.val() || {};
-      this.renderAdminSellers();
-      this.updateSellerFilterDropdown();
+    // Payment Methods Listener
+    db.ref('paymentMethods').on('value', snap => {
+        storeData.payments = snap.val() || {};
+        renderPublicPayments();
+        renderAdminPayments();
     });
 
-    db.ref('admins').on('value', snap => {
-      this.admins = snap.val() || {};
-      this.renderAdminUsers();
-    });
-
+    // Admin Users Listener (Owner View)
     db.ref('users').on('value', snap => {
-      this.allUsers = snap.val() || {};
-      this.renderAdminAllUsers();
-      this.updateAdminDashboardStats();
+        storeData.users = snap.val() || {};
+        renderAdminUsers();
+        renderAdminUserPoints();
+        updateStats();
     });
-  },
+}
 
-  /* ------------------------------------------------------------------------
-     BANNER SLIDER ENGINE (MAX 15)
-     ------------------------------------------------------------------------ */
-  renderBannerSlider() {
-    const track = document.getElementById('slider-track');
-    const dotsContainer = document.getElementById('slider-dots');
-    track.innerHTML = '';
+// 7. VIEW SWITCHING & HAMBURGER
+function switchView(viewId) {
+    document.querySelectorAll('.view-section').forEach(sec => sec.classList.add('hidden'));
+    document.querySelectorAll('.nav-link').forEach(lnk => lnk.classList.remove('active'));
+    
+    const target = document.getElementById(viewId);
+    if (target) target.classList.remove('hidden');
+
+    const navBtn = document.getElementById('nav-' + viewId.replace('View', ''));
+    if (navBtn) navBtn.classList.add('active');
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function toggleMobileMenu() {
+    const menu = document.getElementById('mobileMenu');
+    menu.classList.toggle('hidden');
+}
+
+// 8. BANNER SLIDER SYSTEM
+function renderBanners() {
+    const container = document.getElementById('bannerSlider');
+    const dotsContainer = document.getElementById('sliderDots');
+    const bannerBox = document.getElementById('bannerContainer');
+
+    const activeBanners = Object.values(storeData.banners)
+        .filter(b => b.status === 'ACTIVE')
+        .sort((a,b) => a.order - b.order);
+
+    if (activeBanners.length === 0) {
+        bannerBox.classList.add('hidden');
+        return;
+    }
+
+    bannerBox.classList.remove('hidden');
+    container.innerHTML = '';
     dotsContainer.innerHTML = '';
 
-    if (this.banners.length === 0) {
-      document.getElementById('slider-wrapper').style.display = 'none';
-      return;
-    }
-    document.getElementById('slider-wrapper').style.display = 'block';
-
-    this.banners.slice(0, 15).forEach((b, idx) => {
-      const slide = document.createElement('div');
-      slide.className = 'slide-item';
-      slide.innerHTML = `
-        <img src="${b.imageUrl}" alt="Banner">
-        ${b.title ? `<div class="slide-title">${b.title}</div>` : ''}
-      `;
-      track.appendChild(slide);
-
-      const dot = document.createElement('div');
-      dot.className = `dot ${idx === 0 ? 'active' : ''}`;
-      dot.onclick = () => this.goToSlide(idx);
-      dotsContainer.appendChild(dot);
+    activeBanners.forEach((b, idx) => {
+        container.innerHTML += `
+            <div class="banner-slide">
+                <img src="${b.imageUrl}" alt="${b.title}">
+                ${b.title ? `<div class="banner-slide-title">${b.title}</div>` : ''}
+            </div>
+        `;
+        dotsContainer.innerHTML += `<div class="dot ${idx === 0 ? 'active' : ''}" onclick="goToSlide(${idx})"></div>`;
     });
 
-    if (this.sliderInterval) clearInterval(this.sliderInterval);
-    this.sliderInterval = setInterval(() => this.nextSlide(), 4000);
-  },
+    resetBannerAutoplay(activeBanners.length);
+}
 
-  goToSlide(index) {
-    this.currentSlideIndex = index;
-    const track = document.getElementById('slider-track');
-    track.style.transform = `translateX(-${index * 100}%)`;
+function moveSlide(dir) {
+    const activeBanners = Object.values(storeData.banners).filter(b => b.status === 'ACTIVE');
+    if (activeBanners.length <= 1) return;
     
-    document.querySelectorAll('.slider-dots .dot').forEach((d, i) => {
-      d.classList.toggle('active', i === index);
+    currentBannerIndex = (currentBannerIndex + dir + activeBanners.length) % activeBanners.length;
+    updateBannerPosition();
+}
+
+function goToSlide(idx) {
+    currentBannerIndex = idx;
+    updateBannerPosition();
+}
+
+function updateBannerPosition() {
+    const slider = document.getElementById('bannerSlider');
+    slider.style.transform = `translateX(-${currentBannerIndex * 100}%)`;
+    
+    document.querySelectorAll('.slider-dots .dot').forEach((dot, idx) => {
+        dot.classList.toggle('active', idx === currentBannerIndex);
     });
-  },
+}
 
-  nextSlide() {
-    if (this.banners.length === 0) return;
-    this.currentSlideIndex = (this.currentSlideIndex + 1) % Math.min(this.banners.length, 15);
-    this.goToSlide(this.currentSlideIndex);
-  },
+function resetBannerAutoplay(total) {
+    if (bannerAutoplayTimer) clearInterval(bannerAutoplayTimer);
+    if (total <= 1) return;
+    bannerAutoplayTimer = setInterval(() => {
+        moveSlide(1);
+    }, 4000);
+}
 
-  prevSlide() {
-    if (this.banners.length === 0) return;
-    this.currentSlideIndex = (this.currentSlideIndex - 1 + Math.min(this.banners.length, 15)) % Math.min(this.banners.length, 15);
-    this.goToSlide(this.currentSlideIndex);
-  },
-
-  /* ------------------------------------------------------------------------
-     PRODUCTS RENDER & CATALOG
-     ------------------------------------------------------------------------ */
-  renderProducts() {
-    const featuredGrid = document.getElementById('featured-products-grid');
-    const allGrid = document.getElementById('all-products-grid');
-    const communityGrid = document.getElementById('community-products-grid');
+// 9. PRODUCT SYSTEM & RENDERING
+function renderProducts() {
+    const featuredGrid = document.getElementById('featuredProductsGrid');
+    const mainGrid = document.getElementById('mainProductsGrid');
+    const commGrid = document.getElementById('communityProductsGrid');
 
     featuredGrid.innerHTML = '';
-    allGrid.innerHTML = '';
-    communityGrid.innerHTML = '';
+    mainGrid.innerHTML = '';
+    commGrid.innerHTML = '';
 
-    const searchVal = (document.getElementById('product-search-input')?.value || '').toLowerCase();
-    const catVal = document.getElementById('product-category-filter')?.value || 'ALL';
-    const sellerVal = document.getElementById('product-seller-filter')?.value || 'ALL';
+    const allProds = Object.values(storeData.products).filter(p => p.status === 'ACTIVE');
 
-    const productArray = Object.values(this.products).filter(p => p.status === 'ACTIVE');
-
-    if (productArray.length === 0) {
-      allGrid.innerHTML = '<p class="text-muted">No products available.</p>';
-      featuredGrid.innerHTML = '<p class="text-muted">No featured products.</p>';
-      communityGrid.innerHTML = '<p class="text-muted">No community products.</p>';
-      return;
+    if (allProds.length === 0) {
+        mainGrid.innerHTML = '<p class="text-muted">No products available.</p>';
+        featuredGrid.innerHTML = '<p class="text-muted">No products available.</p>';
+        commGrid.innerHTML = '<p class="text-muted">No community products available.</p>';
+        return;
     }
 
-    productArray.forEach(p => {
-      const matchesSearch = p.name.toLowerCase().includes(searchVal) || (p.description && p.description.toLowerCase().includes(searchVal));
-      const matchesCat = catVal === 'ALL' || p.category === catVal;
-      const matchesSeller = sellerVal === 'ALL' || p.sellerId === sellerVal;
-
-      if (matchesSearch && matchesCat && matchesSeller) {
-        const cardHTML = this.createProductCardHTML(p);
+    allProds.forEach(p => {
+        const cardHTML = createProductCard(p);
 
         if (p.isCommunityOnly) {
-          communityGrid.innerHTML += cardHTML;
+            commGrid.innerHTML += cardHTML;
         } else {
-          allGrid.innerHTML += cardHTML;
-          if (p.isFeatured) {
-            featuredGrid.innerHTML += cardHTML;
-          }
+            mainGrid.innerHTML += cardHTML;
+            if (p.isFeatured) {
+                featuredGrid.innerHTML += cardHTML;
+            }
         }
-      }
     });
-  },
 
-  createProductCardHTML(p) {
-    const isCommunity = p.isCommunityOnly;
-    const priceText = isCommunity ? `${p.price.toLocaleString()} POINT` : `Rp ${p.price.toLocaleString()}`;
+    populateCategoryFilter();
+}
 
+function createProductCard(p) {
     return `
-      <div class="product-card">
-        <img src="${p.imageUrl}" class="product-thumb" alt="${p.name}" loading="lazy">
-        <div class="product-body">
-          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
-            <span class="badge badge-cyan">${p.category || 'General'}</span>
-            ${isCommunity ? '<span class="badge badge-warning">COMMUNITY ONLY</span>' : ''}
-          </div>
-          <h3 class="product-title">${p.name}</h3>
-          <div class="product-meta">
-            <span>Seller: ${p.sellerName || 'Admin'}</span>
-            <span>Stok: ${p.stock}</span>
-          </div>
-          <div class="product-price">${priceText}</div>
-          <div class="product-actions">
-            <button class="btn btn-secondary btn-sm" onclick="app.viewProductDetail('${p.id}')">VIEW DETAIL</button>
-            <button class="btn btn-primary btn-sm" onclick="app.initiateCheckout('${p.id}')">BUY NOW</button>
-          </div>
+        <div class="product-card">
+            <div class="card-img-box">
+                <img src="${p.imageUrl}" alt="${p.name}">
+                ${p.isCommunityOnly ? '<span class="badge-community">COMMUNITY ONLY</span>' : ''}
+            </div>
+            <div class="card-body">
+                <span class="card-category">${p.category}</span>
+                <h3 class="card-title">${p.name}</h3>
+                <span class="card-seller"><i class="fa-solid fa-store"></i> ${p.sellerName || 'Official'}</span>
+                <div class="card-footer">
+                    <div class="card-price">${p.isCommunityOnly ? p.price + ' POINT' : 'Rp ' + p.price.toLocaleString()}</div>
+                    <div class="card-actions">
+                        <button class="btn btn-primary btn-sm" onclick="openProductDetail('${p.productId}')">BUY NOW</button>
+                    </div>
+                </div>
+            </div>
         </div>
-      </div>
     `;
-  },
+}
 
-  viewProductDetail(productId) {
-    const p = this.products[productId];
+function populateCategoryFilter() {
+    const filter = document.getElementById('categoryFilter');
+    const categories = [...new Set(Object.values(storeData.products).map(p => p.category))];
+    filter.innerHTML = '<option value="ALL">Semua Kategori</option>';
+    categories.forEach(c => {
+        if(c) filter.innerHTML += `<option value="${c}">${c}</option>`;
+    });
+}
+
+function applyFilters() {
+    const search = document.getElementById('searchInput').value.toLowerCase();
+    const cat = document.getElementById('categoryFilter').value;
+    const grid = document.getElementById('mainProductsGrid');
+
+    grid.innerHTML = '';
+    const filtered = Object.values(storeData.products).filter(p => {
+        const matchSearch = p.name.toLowerCase().includes(search);
+        const matchCat = (cat === 'ALL' || p.category === cat);
+        return matchSearch && matchCat && !p.isCommunityOnly && p.status === 'ACTIVE';
+    });
+
+    if (filtered.length === 0) {
+        grid.innerHTML = '<p>Produk tidak ditemukan.</p>';
+        return;
+    }
+
+    filtered.forEach(p => grid.innerHTML += createProductCard(p));
+}
+
+// 10. PRODUCT DETAIL & CHECKOUT
+function openProductDetail(productId) {
+    const p = storeData.products[productId];
     if (!p) return;
 
-    const modal = document.getElementById('product-detail-modal');
-    const container = document.getElementById('product-detail-content');
+    selectedProductCheckout = p;
+    document.getElementById('dtlImg').src = p.imageUrl;
+    document.getElementById('dtlName').innerText = p.name;
+    document.getElementById('dtlDesc').innerText = p.description || 'Tidak ada deskripsi.';
+    document.getElementById('dtlCategory').innerText = p.category;
+    document.getElementById('dtlPrice').innerText = p.isCommunityOnly ? `${p.price} POINT` : `Rp ${p.price.toLocaleString()}`;
+    document.getElementById('dtlSeller').innerText = p.sellerName || 'Official';
+    document.getElementById('dtlStock').innerText = p.stock;
 
-    const priceText = p.isCommunityOnly ? `${p.price.toLocaleString()} POINT` : `Rp ${p.price.toLocaleString()}`;
+    document.getElementById('productDetailModal').classList.remove('hidden');
+}
 
-    container.innerHTML = `
-      <img src="${p.imageUrl}" class="product-detail-img" alt="${p.name}">
-      <div>
-        <span class="badge badge-cyan">${p.category}</span>
-        <h2 style="margin:8px 0;">${p.name}</h2>
-        <p style="color:var(--text-muted); font-size:0.9rem; margin-bottom:12px;">${p.description || 'Tidak ada deskripsi.'}</p>
-        <div class="product-price" style="font-size:1.5rem;">${priceText}</div>
-        <p style="font-size:0.85rem; margin-bottom:16px;">
-          <strong>Seller:</strong> ${p.sellerName}<br>
-          <strong>Stock Tersedia:</strong> ${p.stock}<br>
-          <strong>Pembayaran Didukung:</strong> ${p.isCommunityOnly ? 'ONLY POINT / COIN' : (p.allowedPaymentMethods ? p.allowedPaymentMethods.join(', ') : 'GOPAY, POINT')}
-        </p>
-        <button class="btn btn-primary w-100" onclick="app.closeModal('product-detail-modal'); app.initiateCheckout('${p.id}')">
-          ${p.isCommunityOnly ? 'BUY NOW (COMMUNITY POINT)' : 'BUY NOW'}
-        </button>
-      </div>
-    `;
+function closeModal(modalId) {
+    document.getElementById(modalId).classList.add('hidden');
+}
 
-    modal.classList.remove('hidden');
-  },
-
-  /* ------------------------------------------------------------------------
-     CHECKOUT & ORDER SYSTEM
-     ------------------------------------------------------------------------ */
-  initiateCheckout(productId) {
-    if (!this.storeStatus.isOpen) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Store Sedang Ditutup',
-        text: 'Owner sedang menutup layanan transaksi untuk sementara.',
-        confirmButtonColor: '#06b6d4'
-      });
-      return;
-    }
-
-    const p = this.products[productId];
-    if (!p || p.stock <= 0) {
-      Swal.fire('Stok Habis', 'Maaf, stok produk ini telah habis.', 'warning');
-      return;
-    }
-
-    this.selectedProductForCheckout = p;
-    const modal = document.getElementById('checkout-modal');
-    const summary = document.getElementById('checkout-summary-body');
-
-    let paymentOptions = '';
-    if (p.isCommunityOnly) {
-      paymentOptions = `<option value="POINT">POINT / COIN INTERNAL (Saldo: ${this.currentUser.points} PT)</option>`;
-    } else {
-      paymentOptions = `
-        <option value="GOPAY">GoPay Official (085175218022)</option>
-        <option value="POINT">POINT / COIN INTERNAL (Saldo: ${this.currentUser.points} PT)</option>
-      `;
-    }
-
-    summary.innerHTML = `
-      <div style="background:#f8fafc; padding:16px; border-radius:8px; margin-bottom:16px;">
-        <h4>${p.name}</h4>
-        <p style="font-size:0.85rem; color:var(--text-muted);">Seller: ${p.sellerName}</p>
-        <hr class="divider-light">
-        <div style="display:flex; justify-content:space-between; font-weight:700;">
-          <span>Harga Produk:</span>
-          <span>${p.isCommunityOnly ? `${p.price.toLocaleString()} POINT` : `Rp ${p.price.toLocaleString()}`}</span>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>Pilih Metode Pembayaran</label>
-        <select id="checkout-payment-method" class="form-select w-100" onchange="app.calculateCheckoutRemaining()">
-          ${paymentOptions}
-        </select>
-      </div>
-
-      <div id="checkout-point-calculation" class="card p-3 mb-3 bg-light">
-        <div style="display:flex; justify-content:space-between; font-size:0.85rem;">
-          <span>Saldo Point Saat Ini:</span>
-          <strong>${this.currentUser.points.toLocaleString()} PT</strong>
-        </div>
-        <div style="display:flex; justify-content:space-between; font-size:0.85rem;">
-          <span>Harga Item:</span>
-          <strong style="color:var(--danger-color);">- ${p.price.toLocaleString()} PT</strong>
-        </div>
-        <hr class="divider-light">
-        <div style="display:flex; justify-content:space-between; font-weight:700;">
-          <span>Sisa Saldo Point:</span>
-          <span id="checkout-remaining-points">${(this.currentUser.points - p.price).toLocaleString()} PT</span>
-        </div>
-      </div>
-    `;
-
-    modal.classList.remove('hidden');
-    this.calculateCheckoutRemaining();
-  },
-
-  calculateCheckoutRemaining() {
-    const method = document.getElementById('checkout-payment-method')?.value;
-    const calcBox = document.getElementById('checkout-point-calculation');
-    const p = this.selectedProductForCheckout;
-
-    if (method === 'POINT') {
-      calcBox.style.display = 'block';
-      const rem = this.currentUser.points - p.price;
-      const remSpan = document.getElementById('checkout-remaining-points');
-      if (remSpan) {
-        remSpan.innerText = `${rem.toLocaleString()} PT`;
-        remSpan.style.color = rem < 0 ? 'var(--danger-color)' : 'var(--success-color)';
-      }
-    } else {
-      calcBox.style.display = 'none';
-    }
-  },
-
-  confirmOrder() {
-    const p = this.selectedProductForCheckout;
-    if (!p) return;
-
-    const method = document.getElementById('checkout-payment-method').value;
-
-    // Validate Point Balance
-    if (method === 'POINT') {
-      if (this.currentUser.points < p.price) {
+function proceedCheckout() {
+    if (!storeData.isOpen) {
         Swal.fire({
-          icon: 'error',
-          title: 'Point Tidak Cukup',
-          text: `Saldo Point Anda (${this.currentUser.points}) tidak mencukupi untuk transaksi sebesar ${p.price} Point.`,
-          confirmButtonColor: '#06b6d4'
+            icon: 'error',
+            title: 'Store Sedang Ditutup',
+            text: 'Toko saat ini tidak menerima pesanan baru.',
+            confirmButtonColor: '#00bcd4'
         });
         return;
-      }
     }
 
-    const now = Date.now();
-    const expiredAt = now + (24 * 60 * 60 * 1000); // 24 Hours
+    closeModal('productDetailModal');
+    const p = selectedProductCheckout;
+
+    document.getElementById('chkProductName').innerText = p.name;
+    document.getElementById('chkPrice').innerText = p.isCommunityOnly ? `${p.price} POINT` : `Rp ${p.price.toLocaleString()}`;
+    document.getElementById('chkUsername').innerText = currentUser.username;
+    document.getElementById('chkSeller').innerText = p.sellerName || 'Official';
+
+    const paySelect = document.getElementById('chkPaymentSelect');
+    paySelect.innerHTML = '';
+
+    if (p.isCommunityOnly) {
+        paySelect.innerHTML = '<option value="POINT">POINT / COIN</option>';
+    } else {
+        paySelect.innerHTML = `
+            <option value="GOPAY">GoPay (085175218022)</option>
+            <option value="POINT">POINT / COIN</option>
+        `;
+    }
+
+    handleCheckoutPaymentChange();
+    document.getElementById('checkoutModal').classList.remove('hidden');
+}
+
+function handleCheckoutPaymentChange() {
+    const payType = document.getElementById('chkPaymentSelect').value;
+    const pointBox = document.getElementById('pointCalcBox');
+    const gopayBox = document.getElementById('gopayInfoBox');
+
+    if (payType === 'POINT') {
+        pointBox.classList.remove('hidden');
+        gopayBox.classList.add('hidden');
+
+        const balance = currentUser.points;
+        const price = selectedProductCheckout.price;
+        const rem = balance - price;
+
+        document.getElementById('chkPointBalance').innerText = `${balance.toLocaleString()} POINT`;
+        document.getElementById('chkPointRemaining').innerText = `${rem.toLocaleString()} POINT`;
+        document.getElementById('chkPointRemaining').style.color = rem < 0 ? '#ef4444' : '#00bcd4';
+    } else {
+        pointBox.classList.add('hidden');
+        gopayBox.classList.remove('hidden');
+    }
+}
+
+// 11. CONFIRM ORDER & ATOMIC POINT TRANSACTION
+function confirmOrderSubmit() {
+    const p = selectedProductCheckout;
+    const paymentMethod = document.getElementById('chkPaymentSelect').value;
+
+    if (paymentMethod === 'POINT') {
+        if (currentUser.points < p.price) {
+            Swal.fire({
+                icon: 'error',
+                title: 'Point Tidak Cukup',
+                text: 'Saldo Point Anda tidak mencukupi untuk melakukan transaksi ini.',
+                confirmButtonColor: '#00bcd4'
+            });
+            return;
+        }
+
+        // ATOMIC TRANSACTION FIREBASE
+        const userPointRef = db.ref(`users/${currentUser.uid}/points`);
+        userPointRef.transaction(currentPoints => {
+            if ((currentPoints || 0) >= p.price) {
+                return currentPoints - p.price;
+            } else {
+                return; // Abort transaction
+            }
+        }, (error, committed) => {
+            if (error || !committed) {
+                Swal.fire({ icon: 'error', title: 'Transaksi Gagal', text: 'Gagal memproses pengurangan point.' });
+            } else {
+                createOrderInDB(p, 'POINT', 'PAID');
+            }
+        });
+    } else {
+        createOrderInDB(p, 'GOPAY', 'WAITING_PAYMENT');
+    }
+}
+
+function createOrderInDB(product, paymentMethod, initialStatus) {
     const dateStr = new Date().toISOString().slice(0,10).replace(/-/g,"");
-    const randFour = Math.floor(1000 + Math.random() * 9000);
-    const orderId = `ORD-${dateStr}-${randFour}`;
-    const ticketId = `TCK-${dateStr}-${randFour}`;
+    const randNum = Math.floor(1000 + Math.random() * 9000);
+    const orderId = `ORD-${dateStr}-${randNum}`;
+    const ticketId = `TCK-${dateStr}-${randNum}`;
 
     const orderData = {
-      orderId: orderId,
-      userId: this.currentUser.uid,
-      username: this.currentUser.displayName,
-      productId: p.id,
-      productName: p.name,
-      sellerId: p.sellerId || 'SELL_GLOBAL',
-      sellerName: p.sellerName || 'Admin Logistik',
-      price: p.price,
-      paymentMethod: method,
-      status: method === 'POINT' ? 'PAID' : 'WAITING_PAYMENT',
-      createdAt: now,
-      expiredAt: expiredAt,
-      ticketId: ticketId
+        orderId: orderId,
+        userId: currentUser.uid,
+        username: currentUser.username,
+        productId: product.productId,
+        productName: product.name,
+        sellerId: product.sellerId || 'GLOBAL',
+        sellerName: product.sellerName || 'Official',
+        price: product.price,
+        paymentMethod: paymentMethod,
+        status: initialStatus,
+        createdAt: Date.now(),
+        expiredAt: Date.now() + (24 * 60 * 60 * 1000), // 24 Hours
+        ticketId: ticketId
     };
 
-    // Atomic Point Deduction if POINT
-    if (method === 'POINT') {
-      if (this.currentUser.isLoggedIn) {
-        db.ref(`users/${this.currentUser.uid}/points`).transaction(current => {
-          return (current || 0) - p.price;
-        });
-      } else {
-        const newPts = this.currentUser.points - p.price;
-        this.currentUser.points = newPts;
-        localStorage.setItem('guest_points', newPts.toString());
-      }
-    }
-
-    // Save Order and Create Automatic Support Ticket
+    // Create Order & Private Ticket Parallel
     db.ref(`orders/${orderId}`).set(orderData);
-
-    const ticketData = {
-      ticketId: ticketId,
-      orderId: orderId,
-      userId: this.currentUser.uid,
-      sellerId: p.sellerId || 'SELL_GLOBAL',
-      status: 'OPEN',
-      createdAt: now,
-      lastUpdated: now
-    };
-    db.ref(`tickets/${ticketId}`).set(ticketData);
-
-    // Initial message on ticket
-    const initialMsg = {
-      senderId: 'SYSTEM',
-      senderName: 'System Logistik',
-      message: `Order #${orderId} telah dibuat. Metode Pembayaran: ${method}. Silakan gunakan room chat ini untuk koordinasi penyerahan barang/aset.`,
-      timestamp: now
-    };
-    db.ref(`ticketMessages/${ticketId}`).push(initialMsg);
-
-    this.closeModal('checkout-modal');
-
-    if (method === 'POINT') {
-      Swal.fire({
-        icon: 'success',
-        title: 'Pembayaran Point Berhasil',
-        text: `Order #${orderId} telah dibayar secara instant menggunakan Point!`,
-        confirmButtonColor: '#06b6d4'
-      });
-    } else {
-      Swal.fire({
-        icon: 'info',
-        title: 'Order Dibuat - WAITING PAYMENT',
-        html: `Silakan lakukan transfer via <strong>GoPay 085175218022</strong> sebesar <strong>Rp ${p.price.toLocaleString()}</strong>.<br>Masa berlaku pembayaran: 24 Jam.`,
-        confirmButtonColor: '#06b6d4'
-      });
-    }
-
-    this.navigateTo('orders');
-  },
-
-  /* ------------------------------------------------------------------------
-     24-HOUR EXPIRATION ENFORCEMENT
-     ------------------------------------------------------------------------ */
-  checkExpiredOrders() {
-    const now = Date.now();
-    Object.values(this.orders).forEach(ord => {
-      if (ord.status === 'WAITING_PAYMENT' && ord.expiredAt && now > ord.expiredAt) {
-        db.ref(`orders/${ord.orderId}/status`).set('EXPIRED');
-      }
+    db.ref(`tickets/${ticketId}`).set({
+        ticketId: ticketId,
+        orderId: orderId,
+        userId: currentUser.uid,
+        sellerId: product.sellerId || 'GLOBAL',
+        status: 'OPEN',
+        createdAt: Date.now(),
+        lastUpdated: Date.now()
     });
-  },
 
-  /* ------------------------------------------------------------------------
-     MY ORDERS RENDER
-     ------------------------------------------------------------------------ */
-  renderUserOrders() {
-    const container = document.getElementById('user-orders-container');
+    closeModal('checkoutModal');
+
+    Swal.fire({
+        icon: 'success',
+        title: paymentMethod === 'POINT' ? 'Pembayaran Point Berhasil' : 'Order Berhasil Dibuat',
+        text: `Order ID: ${orderId}. Tiket bantuan obrolan telah dibuka.`,
+        confirmButtonColor: '#00bcd4'
+    }).then(() => {
+        switchView('ordersView');
+    });
+}
+
+// 12. ORDER HISTORY & EXPIRATION CHECK
+function renderOrders() {
+    const container = document.getElementById('ordersListContainer');
     container.innerHTML = '';
 
-    const filterVal = document.getElementById('order-status-filter')?.value || 'ALL';
-    const userOrders = Object.values(this.orders).filter(o => o.userId === this.currentUser.uid);
+    const myOrders = Object.values(storeData.orders)
+        .filter(o => o.userId === currentUser.uid || currentUser.role === 'OWNER' || currentUser.role === 'ADMIN')
+        .sort((a,b) => b.createdAt - a.createdAt);
 
-    if (userOrders.length === 0) {
-      container.innerHTML = '<p class="text-muted">Belum ada riwayat pesanan.</p>';
-      return;
+    if (myOrders.length === 0) {
+        container.innerHTML = '<p class="text-muted">Belum ada riwayat pesanan.</p>';
+        return;
     }
 
-    userOrders.sort((a,b) => b.createdAt - a.createdAt).forEach(ord => {
-      if (filterVal !== 'ALL' && ord.status !== filterVal) return;
+    myOrders.forEach(o => {
+        const isExp = Date.now() > o.expiredAt && o.status === 'WAITING_PAYMENT';
+        const displayStatus = isExp ? 'EXPIRED' : o.status;
 
-      const badgeClass = {
-        'WAITING_PAYMENT': 'badge-warning',
-        'PAID': 'badge-success',
-        'PROCESSING': 'badge-cyan',
-        'COMPLETED': 'badge-success',
-        'EXPIRED': 'badge-danger',
-        'CANCELLED': 'badge-danger'
-      }[ord.status] || 'badge';
-
-      let countdownHTML = '';
-      if (ord.status === 'WAITING_PAYMENT') {
-        const diff = ord.expiredAt - Date.now();
-        if (diff > 0) {
-          const hours = Math.floor(diff / (1000 * 60 * 60));
-          const mins = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-          const secs = Math.floor((diff % (1000 * 60)) / 1000);
-          countdownHTML = `<div class="order-countdown">Expired dalam: ${hours.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}</div>`;
-        }
-      }
-
-      container.innerHTML += `
-        <div class="order-card">
-          <div class="order-info">
-            <h4>${ord.productName}</h4>
-            <div style="font-size:0.85rem; color:var(--text-muted);">
-              ID: <strong>${ord.orderId}</strong> | Seller: ${ord.sellerName} | ${new Date(ord.createdAt).toLocaleString()}
+        container.innerHTML += `
+            <div class="order-card">
+                <div class="order-info">
+                    <h4>${o.productName}</h4>
+                    <p>Order ID: <strong>${o.orderId}</strong> | Payment: ${o.paymentMethod}</p>
+                    <p>Harga: <strong>${o.paymentMethod === 'POINT' ? o.price + ' POINT' : 'Rp ' + o.price.toLocaleString()}</strong></p>
+                </div>
+                <div>
+                    <span class="status-badge status-${displayStatus}">${displayStatus}</span>
+                    <br><br>
+                    <button class="btn btn-outline-primary btn-sm" onclick="openTicketChat('${o.ticketId}')">VIEW TICKET</button>
+                </div>
             </div>
-            <div style="margin-top:4px;">
-              <span class="badge ${badgeClass}">${ord.status}</span>
-              <span class="badge badge-cyan" style="margin-left:6px;">${ord.paymentMethod}</span>
-            </div>
-            ${countdownHTML}
-          </div>
-          <div>
-            <div style="font-size:1.1rem; font-weight:800; color:var(--primary-cyan); text-align:right; margin-bottom:8px;">
-              ${ord.paymentMethod === 'POINT' ? `${ord.price.toLocaleString()} PT` : `Rp ${ord.price.toLocaleString()}`}
-            </div>
-            <button class="btn btn-secondary btn-sm" onclick="app.openTicketForOrder('${ord.ticketId}')">VIEW TICKET</button>
-          </div>
-        </div>
-      `;
+        `;
     });
-  },
+}
 
-  /* ------------------------------------------------------------------------
-     PRIVATE CHAT REALTIME TICKET SYSTEM
-     ------------------------------------------------------------------------ */
-  renderUserTickets() {
-    const listContainer = document.getElementById('tickets-list-container');
-    listContainer.innerHTML = '';
+function checkOrderExpirations() {
+    const now = Date.now();
+    Object.values(storeData.orders).forEach(o => {
+        if (o.status === 'WAITING_PAYMENT' && now > o.expiredAt) {
+            db.ref(`orders/${o.orderId}/status`).set('EXPIRED');
+        }
+    });
+}
 
-    const myTickets = Object.values(this.tickets).filter(t => t.userId === this.currentUser.uid || this.currentUser.role === 'ADMIN' || this.currentUser.role === 'OWNER');
+// 13. TICKET REALTIME CHAT SYSTEM
+function renderTickets() {
+    const sidebar = document.getElementById('ticketsListSidebar');
+    sidebar.innerHTML = '';
+
+    const myTickets = Object.values(storeData.tickets)
+        .filter(t => t.userId === currentUser.uid || currentUser.role === 'OWNER' || currentUser.role === 'ADMIN');
 
     if (myTickets.length === 0) {
-      listContainer.innerHTML = '<small class="text-muted">Tidak ada ticket aktif.</small>';
-      return;
+        sidebar.innerHTML = '<p class="p-15 text-muted">Tidak ada tiket aktif.</p>';
+        return;
     }
 
     myTickets.forEach(t => {
-      const activeClass = this.currentActiveTicketId === t.ticketId ? 'active' : '';
-      listContainer.innerHTML += `
-        <div class="ticket-item ${activeClass}" onclick="app.openTicketChat('${t.ticketId}')">
-          <strong style="font-size:0.85rem; display:block;">#${t.orderId}</strong>
-          <span class="badge badge-cyan" style="font-size:0.65rem;">${t.status}</span>
-        </div>
-      `;
-    });
-  },
-
-  openTicketForOrder(ticketId) {
-    this.navigateTo('tickets');
-    this.openTicketChat(ticketId);
-  },
-
-  openTicketChat(ticketId) {
-    this.currentActiveTicketId = ticketId;
-    this.renderUserTickets();
-
-    document.getElementById('no-ticket-selected').classList.add('hidden');
-    const chatBox = document.getElementById('active-chat-box');
-    chatBox.classList.remove('hidden');
-
-    const ticket = this.tickets[ticketId];
-    if (ticket) {
-      document.getElementById('chat-ticket-title').innerText = `Ticket #${ticket.orderId}`;
-      document.getElementById('chat-ticket-status').innerText = ticket.status;
-    }
-
-    // Attach Realtime Listener for Messages
-    db.ref(`ticketMessages/${ticketId}`).on('value', snap => {
-      const messages = snap.val() || {};
-      const body = document.getElementById('chat-messages-body');
-      body.innerHTML = '';
-
-      Object.values(messages).forEach(m => {
-        const isMe = m.senderId === this.currentUser.uid;
-        body.innerHTML += `
-          <div class="chat-bubble ${isMe ? 'me' : 'other'}">
-            <small style="display:block; font-size:0.7rem; opacity:0.8;">${m.senderName}</small>
-            <div>${m.message}</div>
-          </div>
+        sidebar.innerHTML += `
+            <div class="ticket-item-card ${activeTicketId === t.ticketId ? 'active' : ''}" onclick="openTicketChat('${t.ticketId}')">
+                <strong>${t.ticketId}</strong>
+                <p style="font-size:0.75rem;">Order: ${t.orderId}</p>
+                <span class="badge">${t.status}</span>
+            </div>
         `;
-      });
-      body.scrollTop = body.scrollHeight;
     });
-  },
+}
 
-  sendTicketMessage(e) {
-    e.preventDefault();
-    if (!this.currentActiveTicketId) return;
+function openTicketChat(ticketId) {
+    activeTicketId = ticketId;
+    switchView('ticketsView');
 
-    const input = document.getElementById('chat-input-text');
+    document.getElementById('noChatSelected').classList.add('hidden');
+    document.getElementById('activeChatBox').classList.remove('hidden');
+    document.getElementById('chatTicketTitle').innerText = `Ticket ID: ${ticketId}`;
+
+    // Listen to messages
+    db.ref(`ticketMessages/${ticketId}`).on('value', snap => {
+        const msgs = snap.val() || {};
+        const msgContainer = document.getElementById('chatMessages');
+        msgContainer.innerHTML = '';
+
+        Object.values(msgs).forEach(m => {
+            const isMe = m.senderId === currentUser.uid;
+            msgContainer.innerHTML += `
+                <div class="chat-bubble ${isMe ? 'me' : 'other'}">
+                    <small style="font-size:0.65rem; display:block;">${m.senderName}</small>
+                    ${m.text}
+                </div>
+            `;
+        });
+        msgContainer.scrollTop = msgContainer.scrollHeight;
+    });
+}
+
+function sendChatMessage() {
+    const input = document.getElementById('chatInput');
     const text = input.value.trim();
-    if (!text) return;
+    if (!text || !activeTicketId) return;
 
-    const msg = {
-      senderId: this.currentUser.uid,
-      senderName: this.currentUser.displayName,
-      message: text,
-      timestamp: firebase.database.ServerValue.TIMESTAMP
-    };
-
-    db.ref(`ticketMessages/${this.currentActiveTicketId}`).push(msg);
-    db.ref(`tickets/${this.currentActiveTicketId}/lastUpdated`).set(firebase.database.ServerValue.TIMESTAMP);
-    input.value = '';
-  },
-
-  /* ------------------------------------------------------------------------
-     PUBLIC PAYMENT METHODS DISPLAY
-     ------------------------------------------------------------------------ */
-  renderPublicPaymentMethods() {
-    const grid = document.getElementById('public-payment-methods-grid');
-    grid.innerHTML = '';
-
-    const list = Object.values(this.paymentMethods).filter(pm => pm.status === 'ACTIVE');
-
-    // Always append default GoPay
-    grid.innerHTML = `
-      <div class="card p-3" style="background:#fff; border:1px solid var(--border-color); border-radius:12px;">
-        <span class="badge badge-cyan">UTAMA</span>
-        <h3 style="margin:8px 0;">GoPay Official Store</h3>
-        <p style="font-size:0.9rem; color:var(--text-muted);">Transfer Manual 24 Jam</p>
-        <div style="font-size:1.25rem; font-weight:800; color:var(--primary-cyan); margin:8px 0;">085175218022</div>
-        <small>a.n. Store Logistik & Perlengkapan</small>
-      </div>
-    `;
-
-    list.forEach(pm => {
-      grid.innerHTML += `
-        <div class="card p-3" style="background:#fff; border:1px solid var(--border-color); border-radius:12px;">
-          <span class="badge badge-success">SELLER METHOD</span>
-          <h3 style="margin:8px 0;">${pm.name}</h3>
-          <p style="font-size:0.9rem; color:var(--text-muted);">${pm.description || ''}</p>
-          <div style="font-size:1.25rem; font-weight:800; color:var(--primary-cyan); margin:8px 0;">${pm.accountNumber}</div>
-          <small>a.n. ${pm.accountOwner} (${pm.sellerId})</small>
-        </div>
-      `;
+    const msgId = 'MSG_' + Date.now();
+    db.ref(`ticketMessages/${activeTicketId}/${msgId}`).set({
+        messageId: msgId,
+        senderId: currentUser.uid,
+        senderName: currentUser.username,
+        senderRole: currentUser.role,
+        text: text,
+        timestamp: Date.now()
     });
-  },
 
-/* ------------------------------------------------------------------------
-     ADMINISTRATOR PANEL LOGIC
-     ------------------------------------------------------------------------ */
-  switchAdminTab(tabId) {
-    document.querySelectorAll('.admin-tab-pane').forEach(p => p.classList.remove('active'));
+    input.value = '';
+}
+
+function handleChatKeyPress(e) {
+    if (e.key === 'Enter') sendChatMessage();
+}
+
+// 14. ADMIN LOGIN & SECURITY MANAGEMENT
+function openLoginModal() {
+    document.getElementById('loginModal').classList.remove('hidden');
+}
+
+function submitAdminLogin() {
+    const pwd = document.getElementById('loginPasswordInput').value;
+    
+    if (pwd === INIT_OWNER_PWD_HASH) {
+        db.ref(`users/${currentUser.uid}`).update({ role: 'OWNER' });
+        closeModal('loginModal');
+        Swal.fire({ icon: 'success', title: 'Login Owner Berhasil', confirmButtonColor: '#00bcd4' });
+    } else if (pwd === INIT_ADMIN_PWD_HASH) {
+        db.ref(`users/${currentUser.uid}`).update({ role: 'ADMIN' });
+        closeModal('loginModal');
+        Swal.fire({ icon: 'success', title: 'Login Admin Berhasil', confirmButtonColor: '#00bcd4' });
+    } else {
+        Swal.fire({ icon: 'error', title: 'Password Salah', text: 'Kredensial tidak valid.' });
+    }
+}
+
+function handleLogout() {
+    db.ref(`users/${currentUser.uid}`).update({ role: 'USER' });
+    Swal.fire({ icon: 'info', title: 'Logout Berhasil', confirmButtonColor: '#00bcd4' });
+}
+
+// 15. ADMIN DASHBOARD PANELS & MODALS
+function switchAdminTab(tabId) {
+    document.querySelectorAll('.admin-panel').forEach(p => p.classList.add('hidden'));
     document.querySelectorAll('.admin-menu-item').forEach(m => m.classList.remove('active'));
 
-    const targetPane = document.getElementById(`adm-tab-${tabId}`);
-    if (targetPane) targetPane.classList.add('active');
-  },
+    document.getElementById(tabId).classList.remove('hidden');
+    document.getElementById('admTab-' + tabId).classList.add('active');
+}
 
-  updateAdminDashboardStats() {
-    document.getElementById('st-products').innerText = Object.keys(this.products).length;
+function updateStats() {
+    document.getElementById('statProducts').innerText = Object.keys(storeData.products).length;
+    document.getElementById('statOrders').innerText = Object.keys(storeData.orders).length;
     
-    const ordersArr = Object.values(this.orders);
-    document.getElementById('st-orders').innerText = ordersArr.length;
-    document.getElementById('st-pending').innerText = ordersArr.filter(o => o.status === 'WAITING_PAYMENT').length;
-    document.getElementById('st-completed').innerText = ordersArr.filter(o => o.status === 'COMPLETED').length;
-    document.getElementById('st-cancelled').innerText = ordersArr.filter(o => o.status === 'CANCELLED' || o.status === 'EXPIRED').length;
+    const ordersArr = Object.values(storeData.orders);
+    document.getElementById('statPendingOrders').innerText = ordersArr.filter(o => o.status === 'WAITING_PAYMENT').length;
+    document.getElementById('statCompletedOrders').innerText = ordersArr.filter(o => o.status === 'PAID').length;
+    document.getElementById('statCancelledOrders').innerText = ordersArr.filter(o => o.status === 'EXPIRED').length;
 
-    document.getElementById('st-users').innerText = Object.keys(this.allUsers).length;
+    document.getElementById('statUsers').innerText = Object.keys(storeData.users).length;
     
-    const totalPts = Object.values(this.allUsers).reduce((acc, curr) => acc + (curr.points || 0), 0);
-    document.getElementById('st-points').innerText = totalPts.toLocaleString();
+    let totalPts = 0;
+    Object.values(storeData.users).forEach(u => totalPts += (u.points || 0));
+    document.getElementById('statPoints').innerText = totalPts.toLocaleString();
 
-    document.getElementById('st-tickets').innerText = Object.values(this.tickets).filter(t => t.status === 'OPEN').length;
-  },
+    document.getElementById('statTickets').innerText = Object.keys(storeData.tickets).length;
+}
 
-  /* ------------------------------------------------------------------------
-     ADMIN CRUD: PRODUCTS
-     ------------------------------------------------------------------------ */
-  renderAdminProducts() {
-    const tbody = document.getElementById('admin-products-tbody');
+// ADMIN DATA TABLES RENDERING
+function renderAdminProducts() {
+    const tbody = document.getElementById('adminProductsTable');
     tbody.innerHTML = '';
-
-    Object.values(this.products).forEach(p => {
-      tbody.innerHTML += `
-        <tr>
-          <td><img src="${p.imageUrl}" alt="thumb"></td>
-          <td><strong>${p.name}</strong></td>
-          <td>${p.isCommunityOnly ? `${p.price} PT` : `Rp ${p.price.toLocaleString()}`}</td>
-          <td>${p.category}</td>
-          <td>${p.stock}</td>
-          <td>${p.sellerName}</td>
-          <td>${p.isCommunityOnly ? 'YA' : 'TIDAK'}</td>
-          <td><span class="badge ${p.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}">${p.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-secondary" onclick="app.toggleProductStatus('${p.id}', '${p.status}')">Toggle</button>
-            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteProduct('${p.id}')">Del</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.products).forEach(p => {
+        tbody.innerHTML += `
+            <tr>
+                <td><img src="${p.imageUrl}" width="40" height="40" style="object-fit:cover; border-radius:4px;"></td>
+                <td>${p.name}</td>
+                <td>${p.isCommunityOnly ? p.price + ' PTS' : 'Rp ' + p.price.toLocaleString()}</td>
+                <td>${p.category}</td>
+                <td>${p.sellerName || 'Official'}</td>
+                <td>${p.isCommunityOnly ? 'Community' : 'Regular'}</td>
+                <td><span class="badge">${p.status}</span></td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="deleteProduct('${p.productId}')"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
     });
-  },
+}
 
-  openAddProductModal() {
+function openAddProductModal() {
     Swal.fire({
-      title: 'Tambah Produk Baru',
-      html: `
-        <input id="sw-p-name" class="swal2-input" placeholder="Nama Produk">
-        <input id="sw-p-price" type="number" class="swal2-input" placeholder="Harga (Rp atau Point)">
-        <input id="sw-p-img" class="swal2-input" placeholder="URL Foto Produk">
-        <select id="sw-p-cat" class="swal2-select">
-          <option value="Perlengkapan">Perlengkapan</option>
-          <option value="Logistik">Logistik</option>
-          <option value="Aset Roblox">Aset Roblox</option>
-        </select>
-        <input id="sw-p-stock" type="number" class="swal2-input" placeholder="Jumlah Stok" value="100">
-        <label style="display:block; margin-top:10px;"><input type="checkbox" id="sw-p-comm"> Community Only Product?</label>
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Simpan Produk',
-      preConfirm: () => {
-        return {
-          name: document.getElementById('sw-p-name').value,
-          price: parseInt(document.getElementById('sw-p-price').value),
-          imageUrl: document.getElementById('sw-p-img').value,
-          category: document.getElementById('sw-p-cat').value,
-          stock: parseInt(document.getElementById('sw-p-stock').value),
-          isCommunityOnly: document.getElementById('sw-p-comm').checked
-        };
-      }
-    }).then(res => {
-      if (res.isConfirmed && res.value) {
-        const id = 'PROD-' + Date.now();
-        const pData = {
-          id: id,
-          ...res.value,
-          sellerId: this.currentUser.uid,
-          sellerName: this.currentUser.displayName,
-          status: 'ACTIVE'
-        };
-        db.ref(`products/${id}`).set(pData);
-        Swal.fire('Berhasil', 'Produk ditambahkan!', 'success');
-      }
+        title: 'Add New Product',
+        html:
+            '<input id="swName" class="swal2-input" placeholder="Product Name">' +
+            '<input id="swPrice" type="number" class="swal2-input" placeholder="Price">' +
+            '<input id="swImg" class="swal2-input" placeholder="Image URL">' +
+            '<input id="swCat" class="swal2-input" placeholder="Category">' +
+            '<input id="swStock" type="number" class="swal2-input" placeholder="Stock" value="99">' +
+            '<label><input id="swComm" type="checkbox"> Community Only (Points)</label>',
+        focusConfirm: false,
+        showCancelButton: true,
+        confirmButtonText: 'Save Product',
+        preConfirm: () => {
+            return {
+                name: document.getElementById('swName').value,
+                price: parseInt(document.getElementById('swPrice').value),
+                imageUrl: document.getElementById('swImg').value,
+                category: document.getElementById('swCat').value,
+                stock: parseInt(document.getElementById('swStock').value),
+                isCommunityOnly: document.getElementById('swComm').checked
+            }
+        }
+    }).then(result => {
+        if (result.isConfirmed) {
+            const val = result.value;
+            const pId = 'PROD_' + Date.now();
+            db.ref(`products/${pId}`).set({
+                productId: pId,
+                name: val.name,
+                price: val.price,
+                imageUrl: val.imageUrl,
+                category: val.category,
+                stock: val.stock,
+                isCommunityOnly: val.isCommunityOnly,
+                sellerId: currentUser.uid,
+                sellerName: currentUser.username,
+                status: 'ACTIVE',
+                createdAt: Date.now()
+            });
+            Swal.fire('Saved!', 'Product created.', 'success');
+        }
     });
-  },
+}
 
-  toggleProductStatus(id, current) {
-    const next = current === 'ACTIVE' ? 'DISABLED' : 'ACTIVE';
-    db.ref(`products/${id}/status`).set(next);
-  },
-
-  deleteProduct(id) {
+function deleteProduct(productId) {
     Swal.fire({
-      title: 'Hapus Produk?',
-      text: 'Tindakan ini tidak dapat dibatalkan.',
-      icon: 'warning',
-      showCancelButton: true
-    }).then(res => {
-      if (res.isConfirmed) {
-        db.ref(`products/${id}`).remove();
-      }
+        title: 'Delete Product?',
+        text: "Action cannot be undone!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#ef4444',
+        confirmButtonText: 'Yes, delete it!'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            db.ref(`products/${productId}`).remove();
+        }
     });
-  },
+}
 
-  /* ------------------------------------------------------------------------
-     ADMIN CRUD: BANNERS (MAX 15)
-     ------------------------------------------------------------------------ */
-  renderAdminBanners(data) {
-    const tbody = document.getElementById('admin-banners-tbody');
+// BANNERS ADMIN
+function renderAdminBanners() {
+    const tbody = document.getElementById('adminBannersTable');
     tbody.innerHTML = '';
-
-    Object.values(data).forEach(b => {
-      tbody.innerHTML += `
-        <tr>
-          <td><img src="${b.imageUrl}" alt="banner"></td>
-          <td>${b.title || '-'}</td>
-          <td>${b.order}</td>
-          <td><span class="badge ${b.status === 'ACTIVE' ? 'badge-success' : 'badge-danger'}">${b.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteBanner('${b.id}')">Hapus</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.banners).forEach(b => {
+        tbody.innerHTML += `
+            <tr>
+                <td><img src="${b.imageUrl}" width="60" height="30" style="object-fit:cover;"></td>
+                <td>${b.title || '-'}</td>
+                <td>${b.order}</td>
+                <td>${b.status}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="deleteBanner('${b.bannerId}')"><i class="fa-solid fa-trash"></i></button>
+                </td>
+            </tr>
+        `;
     });
-  },
+}
 
-  openAddBannerModal() {
-    if (this.banners.length >= 15) {
-      Swal.fire('Maximum Banners', 'Maximum 15 banners allowed.', 'warning');
-      return;
+function openAddBannerModal() {
+    const currentCount = Object.keys(storeData.banners).length;
+    if (currentCount >= 15) {
+        Swal.fire({ icon: 'warning', title: 'Maximum 15 banners allowed.', confirmButtonColor: '#00bcd4' });
+        return;
     }
 
     Swal.fire({
-      title: 'Tambah Banner Baru',
-      html: `
-        <input id="sw-b-title" class="swal2-input" placeholder="Judul Banner (Opsional)">
-        <input id="sw-b-url" class="swal2-input" placeholder="URL Image Banner">
-        <input id="sw-b-order" type="number" class="swal2-input" placeholder="Urutan (1-15)" value="${this.banners.length + 1}">
-      `,
-      showCancelButton: true,
-      confirmButtonText: 'Simpan Banner'
+        title: 'Add Banner',
+        html:
+            '<input id="swBImg" class="swal2-input" placeholder="Banner Image URL">' +
+            '<input id="swBTitle" class="swal2-input" placeholder="Banner Title">',
+        showCancelButton: true,
+        preConfirm: () => {
+            return {
+                imageUrl: document.getElementById('swBImg').value,
+                title: document.getElementById('swBTitle').value
+            }
+        }
     }).then(res => {
-      if (res.isConfirmed) {
-        const id = 'BAN-' + Date.now();
-        const bData = {
-          id: id,
-          title: document.getElementById('sw-b-title').value,
-          imageUrl: document.getElementById('sw-b-url').value,
-          order: parseInt(document.getElementById('sw-b-order').value),
-          status: 'ACTIVE'
-        };
-        db.ref(`banners/${id}`).set(bData);
-      }
+        if (res.isConfirmed) {
+            const bId = 'BANNER_' + Date.now();
+            db.ref(`banners/${bId}`).set({
+                bannerId: bId,
+                imageUrl: res.value.imageUrl,
+                title: res.value.title,
+                status: 'ACTIVE',
+                order: currentCount + 1
+            });
+        }
     });
-  },
+}
 
-  deleteBanner(id) {
-    db.ref(`banners/${id}`).remove();
-  },
+function deleteBanner(bId) {
+    db.ref(`banners/${bId}`).remove();
+}
 
-  /* ------------------------------------------------------------------------
-     ADMIN ORDERS & TICKETS MANAGEMENT
-     ------------------------------------------------------------------------ */
-  renderAdminOrders() {
-    const tbody = document.getElementById('admin-orders-tbody');
+// PAYMENTS & PUBLIC INFO
+function renderPublicPayments() {
+    const container = document.getElementById('publicPaymentMethodsGrid');
+    container.innerHTML = `
+        <div class="card-box" style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
+            <h3><i class="fa-solid fa-mobile-screen cyan-text"></i> GoPay Official</h3>
+            <p>Nomor: <strong>085175218022</strong></p>
+            <small>An. Store Logistik & Perlengkapan</small>
+        </div>
+        <div class="card-box" style="background:white; padding:20px; border-radius:12px; border:1px solid #e2e8f0; margin-top:15px;">
+            <h3><i class="fa-solid fa-coins cyan-text"></i> POINT / COIN System</h3>
+            <p>Digunakan khusus untuk produk Community Only & transaksi cepat.</p>
+        </div>
+    `;
+}
+
+function renderAdminPayments() {
+    const tbody = document.getElementById('adminPaymentsTable');
     tbody.innerHTML = '';
-
-    Object.values(this.orders).forEach(o => {
-      tbody.innerHTML += `
-        <tr>
-          <td><strong>${o.orderId}</strong></td>
-          <td>${o.username}</td>
-          <td>${o.productName}</td>
-          <td>${o.price.toLocaleString()}</td>
-          <td>${o.paymentMethod}</td>
-          <td><span class="badge badge-cyan">${o.status}</span></td>
-          <td>${new Date(o.createdAt).toLocaleDateString()}</td>
-          <td>
-            <button class="btn btn-sm btn-primary" onclick="app.updateOrderStatus('${o.orderId}')">Status</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.payments).forEach(p => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${p.name}</td>
+                <td>${p.accountNumber}</td>
+                <td>${p.accountOwner}</td>
+                <td>${p.sellerId}</td>
+                <td>${p.status}</td>
+                <td><button class="btn btn-danger btn-sm" onclick="db.ref('paymentMethods/${p.paymentId}').remove()"><i class="fa-solid fa-trash"></i></button></td>
+            </tr>
+        `;
     });
-  },
+}
 
-  updateOrderStatus(orderId) {
+function openAddPaymentModal() {
     Swal.fire({
-      title: 'Update Status Order',
-      input: 'select',
-      inputOptions: {
-        'WAITING_PAYMENT': 'WAITING_PAYMENT',
-        'PAID': 'PAID',
-        'PROCESSING': 'PROCESSING',
-        'COMPLETED': 'COMPLETED',
-        'CANCELLED': 'CANCELLED'
-      },
-      showCancelButton: true
+        title: 'Add Payment Method',
+        html:
+            '<input id="swPName" class="swal2-input" placeholder="Name (e.g. Dana)">' +
+            '<input id="swPNum" class="swal2-input" placeholder="Account Number">' +
+            '<input id="swPOwner" class="swal2-input" placeholder="Owner Name">',
+        showCancelButton: true,
+        preConfirm: () => {
+            return {
+                name: document.getElementById('swPName').value,
+                accountNumber: document.getElementById('swPNum').value,
+                accountOwner: document.getElementById('swPOwner').value
+            }
+        }
     }).then(res => {
-      if (res.isConfirmed && res.value) {
-        db.ref(`orders/${orderId}/status`).set(res.value);
-      }
+        if (res.isConfirmed) {
+            const payId = 'PAY_' + Date.now();
+            db.ref(`paymentMethods/${payId}`).set({
+                paymentId: payId,
+                name: res.value.name,
+                accountNumber: res.value.accountNumber,
+                accountOwner: res.value.accountOwner,
+                sellerId: currentUser.uid,
+                status: 'ACTIVE'
+            });
+        }
     });
-  },
+}
 
-  renderAdminTickets() {
-    const tbody = document.getElementById('admin-tickets-tbody');
+// USER & POINT MANAGEMENT (OWNER)
+function renderAdminUserPoints() {
+    const tbody = document.getElementById('adminUserPointsTable');
     tbody.innerHTML = '';
-
-    Object.values(this.tickets).forEach(t => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${t.ticketId}</td>
-          <td>${t.orderId}</td>
-          <td>${t.userId}</td>
-          <td>${t.sellerId}</td>
-          <td><span class="badge badge-warning">${t.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-secondary" onclick="app.openTicketForOrder('${t.ticketId}')">Buka Chat</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.users).forEach(u => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${u.uid}</td>
+                <td>${u.username}</td>
+                <td>${u.role}</td>
+                <td><strong>${(u.points || 0).toLocaleString()} PTS</strong></td>
+                <td>
+                    <button class="btn btn-primary btn-sm" onclick="editUserPoints('${u.uid}', ${u.points || 0})">Edit Points</button>
+                </td>
+            </tr>
+        `;
     });
-  },
+}
 
-  /* ------------------------------------------------------------------------
-     ADMIN PAYMENTS CRUD
-     ------------------------------------------------------------------------ */
-  renderAdminPayments() {
-    const tbody = document.getElementById('admin-payments-tbody');
-    tbody.innerHTML = '';
-
-    Object.values(this.paymentMethods).forEach(pm => {
-      tbody.innerHTML += `
-        <tr>
-          <td><strong>${pm.name}</strong></td>
-          <td>${pm.description || '-'}</td>
-          <td>${pm.accountNumber}</td>
-          <td>${pm.accountOwner}</td>
-          <td><span class="badge badge-success">${pm.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-outline-danger" onclick="app.deletePaymentMethod('${pm.id}')">Hapus</button>
-          </td>
-        </tr>
-      `;
-    });
-  },
-
-  openAddPaymentModal() {
+function editUserPoints(uid, currentPts) {
     Swal.fire({
-      title: 'Tambah Payment Method',
-      html: `
-        <input id="sw-pm-name" class="swal2-input" placeholder="Nama Payment (mis: QRIS/DANA)">
-        <input id="sw-pm-desc" class="swal2-input" placeholder="Deskripsi Singkat">
-        <input id="sw-pm-acc" class="swal2-input" placeholder="Nomor Rekening / HP">
-        <input id="sw-pm-owner" class="swal2-input" placeholder="Nama Pemilik Akun">
-      `,
-      showCancelButton: true
+        title: 'Set User Point Balance',
+        input: 'number',
+        inputValue: currentPts,
+        showCancelButton: true,
+        confirmButtonText: 'Update Points'
     }).then(res => {
-      if (res.isConfirmed) {
-        const id = 'PAY-' + Date.now();
-        const pmData = {
-          id: id,
-          name: document.getElementById('sw-pm-name').value,
-          description: document.getElementById('sw-pm-desc').value,
-          accountNumber: document.getElementById('sw-pm-acc').value,
-          accountOwner: document.getElementById('sw-pm-owner').value,
-          sellerId: this.currentUser.uid,
-          status: 'ACTIVE'
-        };
-        db.ref(`paymentMethods/${id}`).set(pmData);
-      }
+        if (res.isConfirmed) {
+            db.ref(`users/${uid}/points`).set(parseInt(res.value));
+        }
     });
-  },
+}
 
-  deletePaymentMethod(id) {
-    db.ref(`paymentMethods/${id}`).remove();
-  },
+// STORE LOCK & OTHER CONTROLS
+function toggleStoreStatus(statusBool) {
+    db.ref('storeStatus').set({
+        isOpen: statusBool,
+        updatedAt: Date.now(),
+        updatedBy: currentUser.username
+    });
+    Swal.fire('Updated', `Store status changed to ${statusBool ? 'OPEN' : 'CLOSED'}`, 'success');
+}
 
-  /* ------------------------------------------------------------------------
-     OWNER ONLY MANAGEMENT: ADMINS, SELLERS, USERS, STORE LOCK
-     ------------------------------------------------------------------------ */
-  renderAdminUsers() {
-    const tbody = document.getElementById('admin-users-tbody');
+function saveOwnerSecuritySettings() {
+    const adminP = document.getElementById('cfgAdminPassword').value;
+    const ownerP = document.getElementById('cfgOwnerPassword').value;
+
+    if(adminP) db.ref('ownerSettings/adminPasswordHash').set(adminP);
+    if(ownerP) db.ref('ownerSettings/ownerPasswordHash').set(ownerP);
+
+    Swal.fire('Saved', 'Owner security credentials updated successfully.', 'success');
+}
+
+function renderAdminOrders() {
+    const tbody = document.getElementById('adminOrdersTable');
     tbody.innerHTML = '';
-
-    Object.values(this.admins).forEach(a => {
-      tbody.innerHTML += `
-        <tr>
-          <td><strong>${a.name}</strong><br><small>${a.uid}</small></td>
-          <td><span class="badge badge-cyan">${a.role}</span></td>
-          <td><small>Products, Orders, Banners</small></td>
-          <td>
-            ${a.role !== 'OWNER' ? `<button class="btn btn-sm btn-outline-danger" onclick="app.revokeAdmin('${a.uid}')">Revoke Admin</button>` : '<em>Primary Owner</em>'}
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.orders).forEach(o => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${o.orderId}</td>
+                <td>${o.username}</td>
+                <td>${o.productName}</td>
+                <td>${o.price}</td>
+                <td>${o.paymentMethod}</td>
+                <td><span class="badge">${o.status}</span></td>
+                <td>
+                    <button class="btn btn-success btn-sm" onclick="db.ref('orders/${o.orderId}/status').set('PAID')">Approve</button>
+                    <button class="btn btn-danger btn-sm" onclick="db.ref('orders/${o.orderId}/status').set('CANCELLED')">Cancel</button>
+                </td>
+            </tr>
+        `;
     });
-  },
+}
 
-  openAddAdminModal() {
-    Swal.fire({
-      title: 'Tambah Admin Baru',
-      html: `
-        <input id="sw-adm-uid" class="swal2-input" placeholder="UID User Firebase">
-        <input id="sw-adm-name" class="swal2-input" placeholder="Nama Admin">
-      `,
-      showCancelButton: true
-    }).then(res => {
-      if (res.isConfirmed) {
-        const uid = document.getElementById('sw-adm-uid').value;
-        const name = document.getElementById('sw-adm-name').value;
-        db.ref(`admins/${uid}`).set({
-          uid: uid,
-          name: name,
-          role: 'ADMIN',
-          permissions: { manage_products: true, manage_orders: true }
-        });
-        db.ref(`users/${uid}/role`).set('ADMIN');
-      }
-    });
-  },
-
-  revokeAdmin(uid) {
-    db.ref(`admins/${uid}`).remove();
-    db.ref(`users/${uid}/role`).set('USER');
-  },
-
-  renderAdminSellers() {
-    const tbody = document.getElementById('admin-sellers-tbody');
+function renderAdminTickets() {
+    const tbody = document.getElementById('adminTicketsTable');
     tbody.innerHTML = '';
-
-    Object.values(this.sellers).forEach(s => {
-      tbody.innerHTML += `
-        <tr>
-          <td>${s.sellerId}</td>
-          <td><strong>${s.sellerName}</strong></td>
-          <td>${s.adminUid}</td>
-          <td><span class="badge badge-success">${s.status}</span></td>
-          <td>
-            <button class="btn btn-sm btn-outline-danger" onclick="app.deleteSeller('${s.sellerId}')">Hapus</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.tickets).forEach(t => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${t.ticketId}</td>
+                <td>${t.orderId}</td>
+                <td>${t.userId}</td>
+                <td>${t.status}</td>
+                <td><button class="btn btn-primary btn-sm" onclick="openTicketChat('${t.ticketId}')">Chat</button></td>
+            </tr>
+        `;
     });
-  },
+}
 
-openAddSellerModal() {
-    Swal.fire({
-      title: 'Tambah Seller Baru',
-      html: `
-        <input id="sw-sell-id" class="swal2-input" placeholder="Seller ID (mis: SELL_ROBLOX)">
-        <input id="sw-sell-name" class="swal2-input" placeholder="Nama Seller">
-        <input id="sw-sell-uid" class="swal2-input" placeholder="Admin UID Terkait">
-      `,
-      showCancelButton: true
-    }).then(res => {
-      if (res.isConfirmed) {
-        const sid = document.getElementById('sw-sell-id').value;
-        db.ref(`sellers/${sid}`).set({
-          sellerId: sid,
-          sellerName: document.getElementById('sw-sell-name').value,
-          adminUid: document.getElementById('sw-sell-uid').value,
-          status: 'ACTIVE'
-        });
-      }
-    });
-  },
-
-  deleteSeller(sid) {
-    db.ref(`sellers/${sid}`).remove();
-  },
-
-  updateSellerFilterDropdown() {
-    const select = document.getElementById('product-seller-filter');
-    if (!select) return;
-    select.innerHTML = '<option value="ALL">Semua Seller</option>';
-    Object.values(this.sellers).forEach(s => {
-      select.innerHTML += `<option value="${s.sellerId}">${s.sellerName}</option>`;
-    });
-  },
-
-  renderAdminAllUsers() {
-    const tbody = document.getElementById('admin-allusers-tbody');
+function renderAdminUsers() {
+    const tbody = document.getElementById('adminUsersTable');
     tbody.innerHTML = '';
-
-    Object.values(this.allUsers).forEach(u => {
-      tbody.innerHTML += `
-        <tr>
-          <td><small>${u.uid}</small></td>
-          <td><strong>${u.displayName || 'User'}</strong></td>
-          <td><span class="badge badge-cyan">${u.role || 'USER'}</span></td>
-          <td><strong>${(u.points || 0).toLocaleString()} PT</strong></td>
-          <td>
-            <button class="btn btn-sm btn-primary" onclick="app.adjustUserPoints('${u.uid}', ${u.points || 0})">Set Points</button>
-          </td>
-        </tr>
-      `;
+    Object.values(storeData.users).filter(u => u.role === 'ADMIN' || u.role === 'OWNER').forEach(u => {
+        tbody.innerHTML += `
+            <tr>
+                <td>${u.username}</td>
+                <td>${u.role}</td>
+                <td>${u.uid}</td>
+                <td>ALL_PERMISSIONS</td>
+                <td>-</td>
+            </tr>
+        `;
     });
-  },
+}
 
-  adjustUserPoints(uid, currentPts) {
+function openChangeUsernameModal() {
     Swal.fire({
-      title: 'Adjust Saldo Point',
-      input: 'number',
-      inputValue: currentPts,
-      showCancelButton: true
+        title: 'Ganti Display Name',
+        input: 'text',
+        inputValue: currentUser.username,
+        showCancelButton: true,
+        confirmButtonText: 'Simpan'
     }).then(res => {
-      if (res.isConfirmed && res.value !== "") {
-        const newPts = parseInt(res.value);
-        db.ref(`users/${uid}/points`).set(newPts);
-      }
+        if (res.isConfirmed && res.value.trim()) {
+            db.ref(`users/${currentUser.uid}/username`).set(res.value.trim());
+            localStorage.setItem('store_user_name', res.value.trim());
+        }
     });
-  },
-
-  saveStoreStatus() {
-    const statusVal = document.getElementById('owner-store-status-select').value;
-    db.ref('storeStatus/isOpen').set(statusVal === 'OPEN');
-    Swal.fire('Disimpan', 'Status operasional store diperbarui.', 'success');
-  },
-
-  /* ------------------------------------------------------------------------
-     UI BINDINGS & EVENT HANDLERS
-     ------------------------------------------------------------------------ */
-  bindEvents() {
-    // Hamburger Menu Toggle
-    const burger = document.getElementById('hamburger-btn');
-    const drawer = document.getElementById('mobile-drawer');
-    if (burger && drawer) {
-      burger.addEventListener('click', () => {
-        drawer.classList.toggle('active');
-      });
-    }
-
-    // Slider Next/Prev
-    document.getElementById('slider-prev')?.addEventListener('click', () => this.prevSlide());
-    document.getElementById('slider-next')?.addEventListener('click', () => this.nextSlide());
-
-    // Search and Filters
-    document.getElementById('product-search-input')?.addEventListener('input', () => this.renderProducts());
-    document.getElementById('product-category-filter')?.addEventListener('change', () => this.renderProducts());
-    document.getElementById('product-seller-filter')?.addEventListener('change', () => this.renderProducts());
-    document.getElementById('order-status-filter')?.addEventListener('change', () => this.renderUserOrders());
-
-    // Ticket Form Submit
-    document.getElementById('ticket-message-form')?.addEventListener('submit', (e) => this.sendTicketMessage(e));
-    document.getElementById('close-ticket-btn')?.addEventListener('click', () => {
-      if (this.currentActiveTicketId) {
-        db.ref(`tickets/${this.currentActiveTicketId}/status`).set('CLOSED');
-      }
-    });
-
-    // Confirm Order Button
-    document.getElementById('btn-confirm-order')?.addEventListener('click', () => this.confirmOrder());
-
-    // Profile Display Name Form Update
-    document.getElementById('update-profile-form')?.addEventListener('submit', (e) => {
-      e.preventDefault();
-      const newName = document.getElementById('input-display-name').value.trim();
-      if (!newName) return;
-
-      if (this.currentUser.isLoggedIn) {
-        db.ref(`users/${this.currentUser.uid}/displayName`).set(newName);
-      } else {
-        this.currentUser.displayName = newName;
-        localStorage.setItem('guest_name', newName);
-        this.updateUserInterface();
-      }
-      Swal.fire('Berhasil', 'Display Name diperbarui!', 'success');
-    });
-
-    // Firebase Login Auth Button
-    document.getElementById('btn-login-firebase')?.addEventListener('click', () => {
-      const email = document.getElementById('auth-email').value;
-      const pass = document.getElementById('auth-password').value;
-
-      auth.signInWithEmailAndPassword(email, pass).then(() => {
-        Swal.fire('Login Berhasil', 'Welcome Administrator!', 'success');
-        this.navigateTo('admin');
-      }).catch(err => {
-        Swal.fire('Login Gagal', err.message, 'error');
-      });
-    });
-  },
-
-  closeModal(modalId) {
-    const m = document.getElementById(modalId);
-    if (m) m.classList.add('hidden');
-  }
-};
-
-// Start Engine On Document Ready
-document.addEventListener('DOMContentLoaded', () => {
-  app.init();
-});
+}
