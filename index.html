@@ -113,7 +113,10 @@
     <!-- Admin Panel Section -->
     <section id="admin" class="admin-section hidden">
       <div class="admin-header">
-        <h2>Administrator Panel</h2>
+        <div>
+          <h2>Administrator Panel</h2>
+          <p class="text-muted" style="font-size: 0.85rem;">Kelola Toko & Pesanan</p>
+        </div>
         <span id="admin-role-badge" class="badge">ADMIN</span>
       </div>
 
@@ -123,7 +126,7 @@
         <button class="admin-tab-btn" data-tab="tab-banner">Banner</button>
         <button class="admin-tab-btn" data-tab="tab-pesanan">Pesanan</button>
         <button class="admin-tab-btn" data-tab="tab-ticket">Ticket</button>
-        <button class="admin-tab-btn owner-only hidden" data-tab="tab-management">Admin & Store</button>
+        <button class="admin-tab-btn owner-only hidden" data-tab="tab-management">Store & Admin Control</button>
       </div>
 
       <div class="admin-content">
@@ -156,10 +159,12 @@
               <thead>
                 <tr>
                   <th>Foto</th>
-                  <th>Nama</th>
+                  <th>Nama & Deskripsi</th>
                   <th>Harga</th>
                   <th>Kategori</th>
                   <th>Stock</th>
+                  <th>Seller</th>
+                  <th>Payment</th>
                   <th>Aksi</th>
                 </tr>
               </thead>
@@ -171,7 +176,7 @@
         <!-- Tab Banner Management -->
         <div id="tab-banner" class="tab-pane">
           <div class="pane-header">
-            <h3>Management Banner (Max 15)</h3>
+            <h3>Management Banner (Maksimal 15 Banner)</h3>
             <button class="btn-primary" id="btn-add-banner"><i class="fa-solid fa-plus"></i> Tambah Banner</button>
           </div>
           <div class="table-responsive">
@@ -191,7 +196,7 @@
 
         <!-- Tab Orders Management -->
         <div id="tab-pesanan" class="tab-pane">
-          <h3>Management Pesanan</h3>
+          <h3>Management Pesanan & Verifikasi Payment</h3>
           <div class="table-responsive">
             <table>
               <thead>
@@ -199,6 +204,7 @@
                   <th>Order ID</th>
                   <th>User</th>
                   <th>Produk</th>
+                  <th>Harga</th>
                   <th>Payment</th>
                   <th>Status</th>
                   <th>Aksi</th>
@@ -211,32 +217,47 @@
 
         <!-- Tab Ticket Management -->
         <div id="tab-ticket" class="tab-pane">
-          <h3>Ticket Chat Live</h3>
+          <h3>Ticket Chat Realtime</h3>
           <div class="ticket-admin-wrapper">
             <div class="ticket-sidebar" id="ticket-list-admin"></div>
             <div class="ticket-chat-area" id="admin-chat-area">
-              <p class="text-center text-muted">Pilih ticket untuk memulai chat</p>
+              <p class="text-center text-muted" style="margin-top: 50px;">Pilih ticket di sebelah kiri untuk membuka live chat.</p>
             </div>
           </div>
         </div>
 
         <!-- Tab Management Owner -->
         <div id="tab-management" class="tab-pane owner-only hidden">
-          <h3>Store Control & Admin Management</h3>
+          <h3>Store Lock & Management Admin</h3>
           <div class="owner-controls">
             <div class="control-box">
-              <h4>Store Status</h4>
-              <p>Status Toko saat ini: <strong id="current-store-status">OPEN</strong></p>
-              <button id="btn-toggle-store" class="btn-primary">CLOSE STORE</button>
+              <h4>Store Status Control</h4>
+              <p>Status Toko saat ini: <strong id="current-store-status" style="color:var(--accent-cyan)">OPEN</strong></p>
+              <br>
+              <button id="btn-toggle-store" class="btn-primary">TUTUP TOKO (CLOSE STORE)</button>
             </div>
             <div class="control-box">
               <h4>Tambah Admin Baru</h4>
               <div class="form-group">
-                <input type="text" id="new-admin-username" placeholder="Username Admin">
-                <input type="password" id="new-admin-password" placeholder="Password Admin">
-                <button id="btn-create-admin" class="btn-primary mt-2">Tambah Admin</button>
+                <input type="text" id="new-admin-username" class="input-styled" placeholder="Username Admin">
+                <input type="password" id="new-admin-password" class="input-styled" placeholder="Password Admin">
+                <button id="btn-create-admin" class="btn-primary mt-2"><i class="fa-solid fa-user-plus"></i> Simpan Admin</button>
               </div>
             </div>
+          </div>
+          <br>
+          <h4>Daftar Admin Terdaftar</h4>
+          <div class="table-responsive">
+            <table>
+              <thead>
+                <tr>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Aksi</th>
+                </tr>
+              </thead>
+              <tbody id="admin-users-table"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -277,7 +298,7 @@
     </div>
   </footer>
 
-  <!-- Modal Ticket Detail Chat -->
+  <!-- Modal Ticket Detail Chat (User) -->
   <div id="ticket-modal" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
